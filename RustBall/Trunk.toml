@@ -1,0 +1,4 @@
+[[copy]]
+source = "assets"
+dest   = "assets"
+ignore = ["*.meta"]

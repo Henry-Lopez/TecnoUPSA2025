@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>RustBall - Registro y Partidas</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    input, button { margin: 5px; padding: 8px; font-size: 14px; }
+    pre { background: #222; color: #0f0; padding: 10px; border-radius: 5px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+
+<h1>⚽ RustBall Backend Tester</h1>
+
+<!-- REGISTRO DE USUARIO -->
+<h2>👤 Registro de Usuario</h2>
+<input type="text" id="reg-nombre" placeholder="Nombre de usuario">
+<input type="email" id="reg-correo" placeholder="Correo">
+<input type="password" id="reg-contra" placeholder="Contraseña">
+<button onclick="registrar()">Registrarse</button>
+
+<!-- CREAR O BUSCAR PARTIDA -->
+<h2>🎮 Buscar/Iniciar Partida</h2>
+<input type="number" id="usuario-1" placeholder="ID Usuario 1">
+<input type="number" id="usuario-2" placeholder="ID Usuario 2">
+<button onclick="crearPartida()">Buscar/Iniciar Partida</button>
+
+<!-- RESULTADO -->
+<h2>📋 Resultado</h2>
+<pre id="resultado">Esperando acción...</pre>
+
+<script>
+  const BASE = "/api";
+
+  function mostrar(data) {
+    document.getElementById("resultado").textContent = JSON.stringify(data, null, 2);
+  }
+
+  async function registrar() {
+    const payload = {
+      nombre_usuario: document.getElementById("reg-nombre").value,
+      correo: document.getElementById("reg-correo").value,
+      contrasena: document.getElementById("reg-contra").value
+    };
+
+    try {
+      const res = await fetch(`${BASE}/registro`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      mostrar(data);
+    } catch (e) {
+      mostrar({ error: "❌ Error al registrar usuario" });
+    }
+  }
+
+  async function crearPartida() {
+    const payload = {
+      id_usuario_1: parseInt(document.getElementById("usuario-1").value),
+      id_usuario_2: parseInt(document.getElementById("usuario-2").value)
+    };
+
+    try {
+      const res = await fetch(`${BASE}/partida`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      mostrar(data);
+    } catch (e) {
+      mostrar({ error: "❌ Error al crear/buscar partida" });
+    }
+  }
+</script>
+
+</body>
+</html>

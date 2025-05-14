@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>RustBall – Bevy WASM</title>
+
+  <!-- 1️⃣ Trunk compila tu crate y añade el <script type="module"> con hash -->
+  <link data-trunk rel="rust" />
+
+  <!-- 2️⃣ Copia toda la carpeta assets a dist/assets (sin .meta) -->
+  <link data-trunk rel="copy-dir" href="assets" />
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #121212;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #start-message {
+      color: #fff;
+      font-family: sans-serif;
+      font-size: 18px;
+      margin-bottom: 20px;
+      user-select: none;
+    }
+    canvas {
+      border: 3px solid #ffffff20;
+      border-radius: 12px;
+      max-width: 100%;
+      max-height: 100%;
+    }
+  </style>
+</head>
+<body>
+<!-- Mensaje inicial -->
+<div id="start-message">⚽ Haz clic para iniciar RustBall</div>
+
+<script>
+  // Primer clic: quita el mensaje, reanuda audio y da foco al canvas
+  document.addEventListener(
+          "click",
+          () => {
+            // 1 – Ocultar el texto de inicio
+            document.getElementById("start-message")?.remove();
+
+            // 2 – Hacer enfocable el canvas y darle foco (para captar Tab y otras teclas)
+            const canvas = document.querySelector("canvas");
+            if (canvas) {
+              canvas.setAttribute("tabindex", "0"); // permite recibir Tab
+              canvas.focus();
+            }
+
+            // 3 – Reanudar el AudioContext suspendido por el navegador
+            try {
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (AudioCtx) {
+                const ctx = new AudioCtx();
+                if (ctx.state === "suspended") ctx.resume();
+              }
+            } catch (_) {
+              /* ignorar errores de audio */
+            }
+          },
+          { once: true }
+  );
+</script>
+</body>
+</html>
