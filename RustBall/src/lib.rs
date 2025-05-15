@@ -8,6 +8,8 @@ pub mod formation;
 pub mod formation_selection;
 pub mod game_over;
 mod powerup;
+pub mod zone;
+
 
 use bevy::asset::AssetMetaCheck;
 use powerup::*;
@@ -15,6 +17,8 @@ use powerup::*;
 // 🔁 Entradas para WebAssembly y escritorio
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use crate::zone::apply_zone_effects;
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -37,6 +41,11 @@ pub fn main_internal() {
     use crate::formation_selection::{handle_formation_click, cleanup_formation_ui};
     use crate::setup::ui::cleanup_power_bar;
     use crate::game_over::{show_game_over_screen, cleanup_game_over_ui};
+    use crate::zone::{
+        update_zone_lifetime,
+        update_active_effect_text,
+        hide_effect_text_if_none,
+    };
 
     #[derive(Resource)]
     pub struct TeamSelectionMusic(pub Handle<AudioSource>);
@@ -197,6 +206,7 @@ pub fn main_internal() {
         cleanup_cameras(&mut commands, query);
     }
 
+
     App::new()
         .insert_resource(AssetMetaCheck::Never)
         .insert_resource(GlobalVolume::new(1.0))
@@ -209,6 +219,8 @@ pub fn main_internal() {
             player2: None,
         })
         .insert_resource(PowerUpControl::default())
+        .insert_resource(EventControl::default())
+
         .add_plugins((
             DefaultPlugins.set(AssetPlugin {
                 watch_for_changes_override: Some(false),
@@ -259,6 +271,9 @@ pub fn main_internal() {
             cycle_disk_selection,
             aim_with_keyboard,
             charge_shot_power,
+            fire_selected_disk,            // 👈 el disco se mueve
+            apply_zone_effects,            // ✅ aplicar efecto mientras se mueve
+            check_turn_end,                // 👈 luego chequeas si paró
             check_turn_end,
             detect_goal,
             handle_goal,
@@ -267,7 +282,15 @@ pub fn main_internal() {
             animate_selected_disk,
             spawn_power_up_if_needed,  // 👈 spawnea si toca
             detect_powerup_collision,  // 👈 asigna efecto al disco
+            trigger_random_event_system, // 👈 Asegurate de agregar esto aquí
+            update_zone_lifetime,           // 👈 NUEVO
+            update_active_effect_text,      // 👈 NUEVO
+            hide_effect_text_if_none,       // 👈 NUEVO
+
         ).run_if(in_state(AppState::InGame)))
+        .add_systems(Update, attach_powerup_label.run_if(in_state(AppState::InGame)))
+        .add_systems(Update, remove_powerup_label.run_if(in_state(AppState::InGame)))
+
         .add_systems(PostUpdate, (
             fire_selected_disk,
             draw_aim_direction_gizmo,

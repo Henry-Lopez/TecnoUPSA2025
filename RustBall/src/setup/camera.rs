@@ -24,8 +24,15 @@ pub fn spawn_camera_and_background(commands: &mut Commands, asset_server: &Res<A
 use bevy::prelude::*;
 
 /// Elimina todas las cámaras activas para evitar duplicadas y warnings.
+// 2. En setup/camera.rs - Mejora la función cleanup_cameras para ser más robusta
 pub fn cleanup_cameras(commands: &mut Commands, query: Query<Entity, With<Camera>>) {
-    for entity in &query {
-        commands.entity(entity).despawn_recursive();
+    let count = query.iter().count();
+    if count > 0 {
+        println!("🧹 Limpiando {} cámaras", count);
+        for entity in &query {
+            commands.entity(entity).despawn_recursive();
+        }
+    } else {
+        println!("ℹ️ No se encontraron cámaras para limpiar");
     }
 }

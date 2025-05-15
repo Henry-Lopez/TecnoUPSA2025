@@ -3,6 +3,7 @@ use bevy_rapier2d::prelude::{RigidBody, Velocity};
 use bevy::input::keyboard::KeyCode;
 
 use crate::components::*;
+use crate::powerup::PowerUpControl;
 use crate::resources::*;
 
 pub fn auto_select_first_disk(
@@ -76,7 +77,8 @@ pub fn check_turn_end(
     entities: Query<Entity, With<TurnControlled>>,
     mut sprites: Query<&mut Sprite>,
     disks: Query<&PlayerDisk>,
-    mut powerup_control: ResMut<crate::powerup::PowerUpControl>, // ✅ Añadir esto
+    mut powerup_control: ResMut<PowerUpControl>,
+    mut event_control: ResMut<EventControl>, // ✅ Correctamente añadido
 ) {
     if !turn_state.in_motion {
         return;
@@ -89,7 +91,7 @@ pub fn check_turn_end(
         turn_state.in_motion = false;
 
         for entity in &entities {
-            if let Ok(_disk) = disks.get(entity) {
+            if let Ok(_) = disks.get(entity) {
                 if let Ok(mut sprite) = sprites.get_mut(entity) {
                     sprite.color = Color::WHITE;
                 }
@@ -106,10 +108,19 @@ pub fn check_turn_end(
             turn_state.current_turn = turn_state.current_turn % 2 + 1;
         }
 
-        // ✅ Ahora sí: actualizar turnos
+        // ✅ Incrementa solo si no hay evento activo
+        if !event_control.event_active {
+            event_control.turns_since_last += 1;
+        }
+
         powerup_control.turns_since_last += 1;
-        println!("🔁 Turno terminado, contador actualizado: {}", powerup_control.turns_since_last);
+
+        println!("🔁 Turno terminado, contador power-ups: {}", powerup_control.turns_since_last);
+        println!("🎲 Turnos desde último evento: {}", event_control.turns_since_last);
     }
 }
+
+
+
 
 

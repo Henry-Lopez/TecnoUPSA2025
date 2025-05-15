@@ -28,4 +28,6 @@ pub struct TurnText;
  #[derive(Component)]
  pub struct FormationMenu;
 
+ #[derive(Component)]
+ pub struct PowerUpLabel;
 

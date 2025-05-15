@@ -62,6 +62,16 @@ pub struct PowerBarBackground;
 #[derive(Resource)]
 pub struct GameOverBackground(pub Handle<Image>);
 
+use crate::events::RandomEvent;
+
+#[derive(Resource, Default)]
+pub struct EventControl {
+    pub turns_since_last: usize,
+    pub current_event: Option<RandomEvent>,
+    pub event_active: bool, // ✅ Añadí este campo si usás `active`
+}
+
+
 
 
 

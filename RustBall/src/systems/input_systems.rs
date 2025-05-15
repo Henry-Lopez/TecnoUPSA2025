@@ -34,61 +34,60 @@ pub fn charge_shot_power(
     }
 }
 
-use crate::powerup::{PendingDoubleBounce, PendingSpeedBoost, PendingDoubleTurn};
+use crate::powerup::{PendingDoubleBounce, PendingSpeedBoost, PendingDoubleTurn, PowerUpType};
 
+// ---------------------------------------------------------------------------
+// En tu módulo de disparo (fire_selected_disk)
+// ---------------------------------------------------------------------------
 pub fn fire_selected_disk(
     keys: Res<Input<KeyCode>>,
     mut turn_state: ResMut<TurnState>,
     mut velocities: Query<(Entity, &mut Velocity), With<TurnControlled>>,
     mut commands: Commands,
-    boost_query: Query<(), With<PendingSpeedBoost>>,
-    bounce_query: Query<(), With<PendingDoubleBounce>>,
-    turn_query: Query<(), With<PendingDoubleTurn>>,
+    boost_q: Query<(), With<PendingSpeedBoost>>,
+    bounce_q: Query<(), With<PendingDoubleBounce>>,
+    turn_q: Query<(), With<PendingDoubleTurn>>,
     mut colliders: Query<&mut Restitution>,
 ) {
-    if keys.just_released(KeyCode::Space) && !turn_state.in_motion {
-        let direction = turn_state.aim_direction.normalize_or_zero();
-        let mut speed = turn_state.power * 800.0;
+    if !keys.just_released(KeyCode::Space) || turn_state.in_motion {
+        return;
+    }
 
-        let mut applied = false;
+    let dir = turn_state.aim_direction.normalize_or_zero();
+    let mut base_speed = turn_state.power * 800.0;
+    let mut any_fired = false;
 
-        for (entity, mut velocity) in &mut velocities {
-            // Velocidad extra
-            if boost_query.get(entity).is_ok() {
-                speed *= 1.5;
-                commands.entity(entity).remove::<PendingSpeedBoost>();
-                println!("⚡ Power-Up de velocidad aplicado a {:?}", entity);
+    for (entity, mut vel) in &mut velocities {
+        // ⚡ velocidad
+        if boost_q.get(entity).is_ok() {
+            base_speed *= 1.5;
+            commands.entity(entity).remove::<PendingSpeedBoost>();
+            commands.entity(entity).remove::<PowerUpType>();
+        }
+        // 🎾 rebote doble
+        if bounce_q.get(entity).is_ok() {
+            if let Ok(mut rest) = colliders.get_mut(entity) {
+                rest.coefficient = 2.0;
             }
-
-            // Rebote doble
-            if bounce_query.get(entity).is_ok() {
-                if let Ok(mut restitution) = colliders.get_mut(entity) {
-                    restitution.coefficient = 2.0;
-                    println!("🎾 Power-Up de REBOTE DOBLE aplicado a {:?}", entity);
-                }
-                commands.entity(entity).remove::<PendingDoubleBounce>();
-            }
-
-            // Doble turno
-            if turn_query.get(entity).is_ok() {
-                turn_state.skip_turn_switch = true;
-                commands.entity(entity).remove::<PendingDoubleTurn>();
-                println!("🔁 Power-Up de DOBLE TURNO aplicado a {:?}", entity);
-            }
-
-            let force = direction * speed;
-            velocity.linvel = force;
-            commands.entity(entity).remove::<Sleeping>();
-            println!("→ Velocidad aplicada: {:?} a {:?}", force, entity);
-            applied = true;
+            commands.entity(entity).remove::<PendingDoubleBounce>();
+            commands.entity(entity).remove::<PowerUpType>();
+        }
+        // 🔁 doble turno
+        if turn_q.get(entity).is_ok() {
+            turn_state.skip_turn_switch = true;
+            commands.entity(entity).remove::<PendingDoubleTurn>();
+            commands.entity(entity).remove::<PowerUpType>();
         }
 
-        if applied {
-            turn_state.in_motion = true;
-            turn_state.power = 0.0;
-        } else {
-            println!("⚠️ No se aplicó velocidad: no hay entidad con TurnControlled");
-        }
+        vel.linvel = dir * base_speed;
+        commands.entity(entity).remove::<Sleeping>();
+        any_fired = true;
+    }
+
+    if any_fired {
+        turn_state.in_motion = true;
+        turn_state.power = 0.0;
     }
 }
+
 
