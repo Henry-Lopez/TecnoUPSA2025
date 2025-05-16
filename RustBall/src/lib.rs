@@ -286,10 +286,12 @@ pub fn main_internal() {
             update_zone_lifetime,           // 👈 NUEVO
             update_active_effect_text,      // 👈 NUEVO
             hide_effect_text_if_none,       // 👈 NUEVO
-
+            blink_powerup_labels,           // 👈 Sistema para parpadeo (asegúrate que se ejecuta cada frame)
         ).run_if(in_state(AppState::InGame)))
         .add_systems(Update, attach_powerup_label.run_if(in_state(AppState::InGame)))
         .add_systems(Update, remove_powerup_label.run_if(in_state(AppState::InGame)))
+        // Sistema movido a la sección principal de Update para asegurar que se ejecuta
+        // .add_systems(Update, blink_powerup_labels.run_if(in_state(AppState::InGame)))
 
         .add_systems(PostUpdate, (
             fire_selected_disk,

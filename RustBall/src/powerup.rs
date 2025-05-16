@@ -1,26 +1,22 @@
 // ---------------------------------------------------------------------------
-// powerup.rs  (o el nombre que uses para el módulo)
+// powerup.rs
 // ---------------------------------------------------------------------------
 use bevy::prelude::*;
 use bevy::text::{BreakLineOn, Text2dBundle, TextAlignment, TextSection, TextStyle};
 use bevy_rapier2d::prelude::*;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
-use crate::components::{PlayerDisk, PowerUpLabel};
+use crate::components::{PlayerDisk, PowerUpLabel, PowerUpLabelBlink};
 
-// ────────────────────────────── Constantes ────────────────────────────────
 pub const TURN_INTERVAL_FOR_POWERUP: usize = 1;
 
-// ───────────────────────────── Etiquetas ECS ──────────────────────────────
 #[derive(Component)] pub struct PowerUp;
 #[derive(Component)] pub struct PendingSpeedBoost;
 #[derive(Component)] pub struct PendingDoubleBounce;
 #[derive(Component)] pub struct PendingDoubleTurn;
 
-/// Guarda el tipo de power-up aplicado al disco
 #[derive(Component)] pub struct PowerUpType(pub usize);
 
-/// Control global para «cool-down» y antirepetición
 #[derive(Resource, Default)]
 pub struct PowerUpControl {
     pub turns_since_last: usize,
@@ -28,7 +24,6 @@ pub struct PowerUpControl {
     pub last_type: Option<usize>,
 }
 
-// ─────────────────────────── Generar power-up ─────────────────────────────
 pub fn spawn_power_up_if_needed(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -42,9 +37,9 @@ pub fn spawn_power_up_if_needed(
     let pos = Vec2::new(rng.gen_range(-400.0..400.0), rng.gen_range(-300.0..300.0));
 
     let mut options = vec![
-        ("rayito.png", 0),
+        ("rayooo.png", 0),
         ("rebote.png", 1),
-        ("doble_turno.png", 2),
+        ("dobleturno.png", 2),
     ];
     if let Some(last) = control.last_type {
         options.retain(|(_, t)| *t != last);
@@ -61,7 +56,7 @@ pub fn spawn_power_up_if_needed(
             transform: Transform::from_xyz(pos.x, pos.y, 10.0),
             ..default()
         },
-        PowerUpType(t),                // necesario para el label previo a la colisión
+        PowerUpType(t),
         PowerUp,
         Collider::ball(20.0),
         Sensor,
@@ -73,7 +68,6 @@ pub fn spawn_power_up_if_needed(
     control.last_type = Some(t);
 }
 
-// ─────────────────────── Detección de colisión ────────────────────────────
 pub fn detect_powerup_collision(
     mut commands: Commands,
     mut collisions: EventReader<CollisionEvent>,
@@ -94,14 +88,14 @@ pub fn detect_powerup_collision(
             };
 
             match pup_type {
-                0 => {               // ⚡ Velocidad
+                0 => {
                     commands.entity(disk).insert((PendingSpeedBoost, PowerUpType(0)));
                 }
-                1 => {               // 🎾 Doble Rebote
+                1 => {
                     commands.entity(disk).insert((PendingDoubleBounce, PowerUpType(1)));
                 }
-                2 => {               // ⏩ Doble Turno
-                    commands.entity(disk).insert((PendingDoubleTurn,  PowerUpType(2)));
+                2 => {
+                    commands.entity(disk).insert((PendingDoubleTurn, PowerUpType(2)));
                 }
                 _ => {}
             }
@@ -112,8 +106,6 @@ pub fn detect_powerup_collision(
     }
 }
 
-
-// ───────────────────────── Mostrar etiqueta ───────────────────────────────
 pub fn attach_powerup_label(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -136,16 +128,20 @@ pub fn attach_powerup_label(
                             TextStyle {
                                 font: asset_server.load("fonts/FiraSans-Bold.ttf"),
                                 font_size: 16.0,
-                                color: Color::YELLOW.with_a(0.85),
+                                // Color menos chillón (más suave)
+                                color: Color::rgb(0.8, 0.7, 0.2).with_a(0.9),
                             },
                         )],
                         alignment: TextAlignment::Center,
                         linebreak_behavior: BreakLineOn::WordBoundary,
                     },
-                    transform: Transform::from_xyz(0.0, 25.0, 20.0), // Z alto
+                    transform: Transform::from_xyz(0.0, 40.0, 20.0),
                     ..default()
                 },
                 PowerUpLabel,
+                PowerUpLabelBlink {
+                    timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+                },
             ))
             .id();
 
@@ -153,7 +149,27 @@ pub fn attach_powerup_label(
     }
 }
 
-// ────────────────── Limpiar etiqueta al consumir efecto ───────────────────
+pub fn blink_powerup_labels(
+    time: Res<Time>,
+    mut query: Query<(&mut Text, &mut PowerUpLabelBlink)>,
+) {
+    for (mut text, mut blink) in &mut query {
+        blink.timer.tick(time.delta());
+
+        // Calculamos una función sinusoidal para crear un efecto de pulsación más suave
+        let phase = (blink.timer.elapsed_secs() * std::f32::consts::PI * 2.0).sin();
+        // Oscila entre 0.3 y 1.0 para un efecto más visible
+        let alpha = 0.3 + 0.7 * phase.abs();
+
+        if let Some(section) = text.sections.get_mut(0) {
+            // Aplicamos la transparencia calculada
+            let mut color = section.style.color;
+            color.set_a(alpha);
+            section.style.color = color;
+        }
+    }
+}
+
 pub fn remove_powerup_label(
     mut commands: Commands,
     disks: Query<(
@@ -167,7 +183,7 @@ pub fn remove_powerup_label(
 ) {
     for (disk, spd, bnc, trn, kids) in &disks {
         if spd.is_some() || bnc.is_some() || trn.is_some() {
-            continue; // aún tiene power-up
+            continue;
         }
 
         if let Some(children) = kids {
