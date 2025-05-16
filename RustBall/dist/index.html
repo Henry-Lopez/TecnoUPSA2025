@@ -7,8 +7,8 @@
   <!-- 1️⃣ Trunk compila tu crate y añade el <script type="module"> con hash -->
   
 <script type="module">
-import init, * as bindings from '/rustball-568797d4449eb193.js';
-const wasm = await init({ module_or_path: '/rustball-568797d4449eb193_bg.wasm' });
+import init, * as bindings from '/rustball-3c8ce7011db5e179.js';
+const wasm = await init({ module_or_path: '/rustball-3c8ce7011db5e179_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -46,7 +46,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
       max-height: 100%;
     }
   </style>
-<link rel="modulepreload" href="/rustball-568797d4449eb193.js" crossorigin="anonymous" integrity="sha384-5rQgrT8hqPu5s5jygApIWf4eFAD1RRTsO2OFp7EP7RB8go0B156Vv7P1KaxFJnHo"><link rel="preload" href="/rustball-568797d4449eb193_bg.wasm" crossorigin="anonymous" integrity="sha384-X0f/4CLUxv9/1v5USgpoKjZumXfcwy3IlV37dsQs3pGakVc6LD0OJG//2Mp/Mf4p" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/rustball-3c8ce7011db5e179.js" crossorigin="anonymous" integrity="sha384-9Q9lZRhOdXjMyjXE7OsmcESwmtteCrapxyHjG8LjXO8K0SzCD+ytnorEoLM+Mtvp"><link rel="preload" href="/rustball-3c8ce7011db5e179_bg.wasm" crossorigin="anonymous" integrity="sha384-RWti13sAVnXTOdMeBvaStx+1hVNPetM9tq+TWz5ulSkFj3E7/dPZ6EzhrIl3eqX9" as="fetch" type="application/wasm"></head>
 <body>
 <!-- Mensaje inicial -->
 <div id="start-message">⚽ Haz clic para iniciar RustBall</div>

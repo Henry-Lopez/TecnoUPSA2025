@@ -36,3 +36,5 @@ uuid = { version = "1.3", features = ["v4"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1.3", features = ["v4", "js"] }
+log         = "0.4"      # macros info!, warn!, etc.
+wasm-logger = "0.2"      # envía los logs al console del navegador

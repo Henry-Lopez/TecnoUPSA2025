@@ -1,38 +1,51 @@
 use bevy::prelude::*;
 
+/// Disco de jugador
 #[derive(Component)]
 pub struct PlayerDisk {
  pub player_id: usize,
 }
 
+/// Pelota
 #[derive(Component)]
 pub struct Ball;
 
+/// Componente marcador de turno
 #[derive(Component)]
 pub struct TurnControlled;
 
+/// Zona de gol
 #[derive(Component)]
 pub struct GoalZone {
  pub is_left: bool,
 }
 
-// Optimizado para usar un patrón de timer eficiente
+/// Texto animado del power-up (solo si lo dejás con parpadeo)
 #[derive(Component)]
 pub struct PowerUpLabelBlink {
  pub timer: Timer,
 }
 
+/// Componente que identifica al texto de turno
 #[derive(Component)]
 pub struct TurnText;
 
+/// Componente que identifica al texto de score
 #[derive(Component)]
 pub struct ScoreText;
 
+/// Barra de poder visual
 #[derive(Component)]
 pub struct PowerBar;
 
+/// Menú de formaciones
 #[derive(Component)]
 pub struct FormationMenu;
 
+/// Texto del power-up encima de cada jugador
 #[derive(Component)]
 pub struct PowerUpLabel;
+
+/// Componente opcional si usás visibilidad en vez de despawn
+#[derive(Component)]
+pub struct PowerUpLabelVisibility;

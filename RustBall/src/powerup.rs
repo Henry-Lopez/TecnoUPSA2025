@@ -1,8 +1,5 @@
-// ---------------------------------------------------------------------------
-// powerup.rs
-// ---------------------------------------------------------------------------
 use bevy::prelude::*;
-use bevy::text::{BreakLineOn, Text2dBundle, TextAlignment, TextSection, TextStyle};
+use bevy::text::{Text2dBundle, TextAlignment, TextStyle};
 use bevy_rapier2d::prelude::*;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
@@ -22,6 +19,17 @@ pub struct PowerUpControl {
     pub turns_since_last: usize,
     pub active: bool,
     pub last_type: Option<usize>,
+}
+
+#[derive(Resource)]
+pub struct FontHandles {
+    pub fira_bold: Handle<Font>,
+}
+
+pub fn setup_fonts(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.insert_resource(FontHandles {
+        fira_bold: asset_server.load("fonts/FiraSans-Bold.ttf"),
+    });
 }
 
 pub fn spawn_power_up_if_needed(
@@ -71,7 +79,7 @@ pub fn spawn_power_up_if_needed(
 pub fn detect_powerup_collision(
     mut commands: Commands,
     mut collisions: EventReader<CollisionEvent>,
-    disks:    Query<(Entity, &PlayerDisk)>,
+    disks: Query<(Entity, &PlayerDisk)>,
     powerups: Query<(Entity, &PowerUpType), With<PowerUp>>,
     mut control: ResMut<PowerUpControl>,
 ) {
@@ -87,6 +95,9 @@ pub fn detect_powerup_collision(
                 continue;
             };
 
+            commands.entity(pup_entity).despawn_recursive();
+            control.active = false;
+
             match pup_type {
                 0 => {
                     commands.entity(disk).insert((PendingSpeedBoost, PowerUpType(0)));
@@ -100,41 +111,28 @@ pub fn detect_powerup_collision(
                 _ => {}
             }
 
-            commands.entity(pup_entity).despawn_recursive();
-            control.active = false;
         }
     }
 }
 
-pub fn attach_powerup_label(
+pub fn attach_powerup_label_once(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    query: Query<(Entity, &Transform, &PowerUpType), (With<PlayerDisk>, Without<PowerUpLabel>)>,
+    fonts: Res<FontHandles>,
+    query: Query<Entity, (With<PlayerDisk>, Without<PowerUpLabel>)>,
 ) {
-    for (disk, _tx, pup) in &query {
-        let text = match pup.0 {
-            0 => "Velocidad",
-            1 => "Doble Rebote",
-            2 => "Doble Turno",
-            _ => "Power-Up",
-        };
-
+    for disk in &query {
         let label = commands
             .spawn((
                 Text2dBundle {
-                    text: Text {
-                        sections: vec![TextSection::new(
-                            text,
-                            TextStyle {
-                                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                                font_size: 16.0,
-                                // Color menos chillón (más suave)
-                                color: Color::rgb(0.8, 0.7, 0.2).with_a(0.9),
-                            },
-                        )],
-                        alignment: TextAlignment::Center,
-                        linebreak_behavior: BreakLineOn::WordBoundary,
-                    },
+                    text: Text::from_section(
+                        "",
+                        TextStyle {
+                            font: fonts.fira_bold.clone(),
+                            font_size: 16.0,
+                            color: Color::rgba(0.8, 0.7, 0.2, 0.9),
+                        },
+                    )
+                        .with_alignment(TextAlignment::Center),
                     transform: Transform::from_xyz(0.0, 40.0, 20.0),
                     ..default()
                 },
@@ -142,10 +140,32 @@ pub fn attach_powerup_label(
                 PowerUpLabelBlink {
                     timer: Timer::from_seconds(0.5, TimerMode::Repeating),
                 },
+                Visibility::Hidden,
             ))
             .id();
 
         commands.entity(disk).add_child(label);
+    }
+}
+
+pub fn update_powerup_labels(
+    mut text_query: Query<(&mut Text, &mut Visibility), With<PowerUpLabel>>,
+    parent_query: Query<(&Children, &PowerUpType), With<PlayerDisk>>,
+) {
+    for (children, pup_type) in &parent_query {
+        for &child in children {
+            if let Ok((mut text, mut vis)) = text_query.get_mut(child) {
+                let label_text = match pup_type.0 {
+                    0 => "Velocidad",
+                    1 => "Doble Rebote",
+                    2 => "Doble Turno",
+                    _ => "",
+                };
+
+                text.sections[0].value = label_text.to_string();
+                *vis = Visibility::Visible;
+            }
+        }
     }
 }
 
@@ -156,13 +176,10 @@ pub fn blink_powerup_labels(
     for (mut text, mut blink) in &mut query {
         blink.timer.tick(time.delta());
 
-        // Calculamos una función sinusoidal para crear un efecto de pulsación más suave
         let phase = (blink.timer.elapsed_secs() * std::f32::consts::PI * 2.0).sin();
-        // Oscila entre 0.3 y 1.0 para un efecto más visible
         let alpha = 0.3 + 0.7 * phase.abs();
 
         if let Some(section) = text.sections.get_mut(0) {
-            // Aplicamos la transparencia calculada
             let mut color = section.style.color;
             color.set_a(alpha);
             section.style.color = color;
@@ -171,28 +188,21 @@ pub fn blink_powerup_labels(
 }
 
 pub fn remove_powerup_label(
-    mut commands: Commands,
     disks: Query<(
-        Entity,
         Option<&PendingSpeedBoost>,
         Option<&PendingDoubleBounce>,
         Option<&PendingDoubleTurn>,
-        Option<&Children>,
+        &Children,
     ), With<PlayerDisk>>,
-    labels: Query<&PowerUpLabel>,
+    mut text_query: Query<&mut Visibility, With<PowerUpLabel>>,
 ) {
-    for (disk, spd, bnc, trn, kids) in &disks {
-        if spd.is_some() || bnc.is_some() || trn.is_some() {
-            continue;
-        }
-
-        if let Some(children) = kids {
+    for (spd, bnc, trn, children) in &disks {
+        if spd.is_none() && bnc.is_none() && trn.is_none() {
             for &child in children {
-                if labels.get(child).is_ok() {
-                    commands.entity(child).despawn_recursive();
+                if let Ok(mut vis) = text_query.get_mut(child) {
+                    *vis = Visibility::Hidden;
                 }
             }
         }
-        commands.entity(disk).remove::<PowerUpType>();
     }
 }

@@ -206,21 +206,19 @@ pub fn main_internal() {
         cleanup_cameras(&mut commands, query);
     }
 
-
     App::new()
+        // ───── Recursos iniciales ────────────────────────────────────────────────
         .insert_resource(AssetMetaCheck::Never)
         .insert_resource(GlobalVolume::new(1.0))
         .insert_resource(ClearColor(Color::BLACK))
         .add_state::<AppState>()
         .insert_resource(TurnState::default())
         .insert_resource(Scores::default())
-        .insert_resource(PlayerFormations {
-            player1: None,
-            player2: None,
-        })
+        .insert_resource(PlayerFormations { player1: None, player2: None })
         .insert_resource(PowerUpControl::default())
         .insert_resource(EventControl::default())
 
+        // ───── Plugins ───────────────────────────────────────────────────────────
         .add_plugins((
             DefaultPlugins.set(AssetPlugin {
                 watch_for_changes_override: Some(false),
@@ -233,11 +231,16 @@ pub fn main_internal() {
             ..default()
         })
         .add_event::<GoalEvent>()
+
+        // ───── Startup ───────────────────────────────────────────────────────────
         .add_systems(Startup, (
+            setup_fonts,
             load_team_selection_music,
             load_background_image,
             load_game_over_assets,
         ))
+
+        // ───── FormationSelection ────────────────────────────────────────────────
         .add_systems(OnEnter(AppState::FormationSelection), (
             show_formation_ui_system,
             spawn_selection_background,
@@ -247,18 +250,25 @@ pub fn main_internal() {
             despawn_selection_background,
             stop_selection_music,
         ))
+
+        // ───── FormationChange ───────────────────────────────────────────────────
         .add_systems(OnEnter(AppState::FormationChange), (
             show_formation_ui_system,
             reset_for_formation,
             cleanup_power_bar,
         ))
+
+        // ───── InGame (OnEnter / OnExit) ─────────────────────────────────────────
         .add_systems(OnEnter(AppState::InGame), (
             cleanup_formation_ui,
             cleanup_cameras_on_enter,
             play_ingame_music,
             setup,
+            attach_powerup_label_once,          // ← crea los textos vacíos
         ))
         .add_systems(OnExit(AppState::InGame), stop_ingame_music)
+
+        // ───── Formation-UI actualizaciones ──────────────────────────────────────
         .add_systems(Update, (
             handle_formation_click,
             animate_selection_buttons,
@@ -266,38 +276,52 @@ pub fn main_internal() {
             in_state(AppState::FormationSelection)
                 .or_else(in_state(AppState::FormationChange))
         ))
+
+        // ───── Gameplay (Update) ─────────────────────────────────────────────────
         .add_systems(Update, (
             auto_select_first_disk,
             cycle_disk_selection,
             aim_with_keyboard,
             charge_shot_power,
-            fire_selected_disk,            // 👈 el disco se mueve
-            apply_zone_effects,            // ✅ aplicar efecto mientras se mueve
-            check_turn_end,                // 👈 luego chequeas si paró
+        ).run_if(in_state(AppState::InGame)))
+
+        .add_systems(Update, (
+            fire_selected_disk,
+            apply_zone_effects,
             check_turn_end,
             detect_goal,
             handle_goal,
+        ).run_if(in_state(AppState::InGame)))
+
+        .add_systems(Update, (
             update_turn_text,
             update_score_text,
             animate_selected_disk,
-            spawn_power_up_if_needed,  // 👈 spawnea si toca
-            detect_powerup_collision,  // 👈 asigna efecto al disco
-            trigger_random_event_system, // 👈 Asegurate de agregar esto aquí
-            update_zone_lifetime,           // 👈 NUEVO
-            update_active_effect_text,      // 👈 NUEVO
-            hide_effect_text_if_none,       // 👈 NUEVO
-            blink_powerup_labels,           // 👈 Sistema para parpadeo (asegúrate que se ejecuta cada frame)
+            spawn_power_up_if_needed,
+            detect_powerup_collision,           // ← inserta PowerUpType
         ).run_if(in_state(AppState::InGame)))
-        .add_systems(Update, attach_powerup_label.run_if(in_state(AppState::InGame)))
-        .add_systems(Update, remove_powerup_label.run_if(in_state(AppState::InGame)))
-        // Sistema movido a la sección principal de Update para asegurar que se ejecuta
-        // .add_systems(Update, blink_powerup_labels.run_if(in_state(AppState::InGame)))
 
+        .add_systems(Update, (
+            trigger_random_event_system,
+            update_zone_lifetime,
+            update_active_effect_text,
+            hide_effect_text_if_none,
+        ).run_if(in_state(AppState::InGame)))
+
+        // ───── PostUpdate (garantiza que los Commands ya se aplicaron) ───────────
         .add_systems(PostUpdate, (
+            // textos de power-up (ya ven PowerUpType aplicado en el frame)
+            update_powerup_labels,
+            remove_powerup_label,
+            blink_powerup_labels,
+
+            // otros post-updates
             fire_selected_disk,
             draw_aim_direction_gizmo,
             update_power_bar,
         ).run_if(in_state(AppState::InGame)))
+
+        // ───── GoalScored ────────────────────────────────────────────────────────
         .add_systems(OnEnter(AppState::GoalScored), (
             setup_goal_timer,
             play_goal_sound,
@@ -306,6 +330,8 @@ pub fn main_internal() {
             goal_banner_fadeout,
             wait_and_change_state,
         ).run_if(in_state(AppState::GoalScored)))
+
+        // ───── GameOver ──────────────────────────────────────────────────────────
         .add_systems(OnEnter(AppState::GameOver), (
             despawn_game_entities,
             spawn_game_over_background,
@@ -317,5 +343,6 @@ pub fn main_internal() {
             stop_game_over_music,
             cleanup_game_over_ui,
         ))
+
         .run();
 }
