@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>RustBall – Registro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- Imágenes decorativas -->
+<img src="img/messi.png" class="futbolista-izquierda" alt="">
+<img src="img/cr77.png"  class="futbolista-derecha"  alt="">
+
+<h1>⚽ RustBall</h1>
+
+<div id="registration-container">
+    <h2>👤 Registro de Usuario</h2>
+    <div class="input-group">
+        <input type="text"     id="reg-nombre" placeholder="Nombre de usuario">
+        <input type="email"    id="reg-correo" placeholder="Correo">
+        <input type="password" id="reg-contra" placeholder="Contraseña">
+        <button id="btn-registrar">Registrarse</button>
+    </div>
+</div>
+
+<pre id="resultado">Esperando acción…</pre>
+
+<!-- Módulo JS -->
+<script type="module" src="js/registro.js"></script>
+</body>
+</html>

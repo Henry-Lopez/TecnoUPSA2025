@@ -21,10 +21,6 @@ pub struct GoalZone {
 }
 
 /// Texto animado del power-up (solo si lo dejás con parpadeo)
-#[derive(Component)]
-pub struct PowerUpLabelBlink {
- pub timer: Timer,
-}
 
 /// Componente que identifica al texto de turno
 #[derive(Component)]

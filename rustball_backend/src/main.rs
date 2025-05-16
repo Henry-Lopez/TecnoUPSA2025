@@ -1,16 +1,15 @@
 use axum::{
     extract::Extension,
-    routing::{get, post},
+    routing::{get, post, get_service},   // ✅  sin `route_service`
     Router,
 };
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tower_http::{
     cors::{Any, CorsLayer},
-    services::ServeDir,
+    services::{ServeDir, ServeFile},
 };
 use tracing_subscriber::EnvFilter;
-use sqlx::MySqlPool;
 
 mod models;
 mod handlers;
@@ -18,46 +17,49 @@ mod db_mysql;
 
 #[tokio::main]
 async fn main() {
-    // ✅ Logging activado (usa RUST_LOG=debug o info)
+    /* ────────── logging ────────── */
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    println!("🧪 Iniciando backend...");
-
-    // 🔌 Conexión MySQL
+    /* ────────── DB pool ────────── */
     let db_pool = db_mysql::init_pool().await;
 
-    // 🛡️ CORS para desarrollo
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    // 📦 API con todas las rutas
+    /* ────────── API JSON ────────── */
     let api = Router::new()
-        .route("/jugada", post(handlers::post_jugada))
+        .route("/jugada",             post(handlers::post_jugada))
         .route("/estado/:id_partida", get(handlers::get_estado))
-        .route("/usuarios", get(handlers::get_usuarios))
+        .route("/usuarios",           get(handlers::get_usuarios))
         .route("/estadisticas/:id_usuario", get(handlers::get_estadisticas))
-        .route("/formacion", post(handlers::post_formacion))
-        .route("/registro", post(handlers::post_registro))  // Ruta nueva
-        .route("/partida", post(handlers::post_partida))    // Ruta nueva
+        .route("/formacion",          post(handlers::post_formacion))
+        .route("/registro",           post(handlers::post_registro))
+        .route("/partida",            post(handlers::post_partida))
         .layer(Extension(db_pool));
 
-    println!("🧪 Rutas API cargadas.");
+    /* ────────── archivos estáticos ────────── */
+    // .../rustball_workspace/frontend
+    let static_dir: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend");
+    let registro_file       = static_dir.join("registro.html");
 
-    // ✅ Ruta absoluta al frontend (estático)
-    let static_dir: PathBuf = PathBuf::from("../frontend");
+    let static_root = Router::new()
+        // /  →  registro.html
+        .route("/", get_service(ServeFile::new(registro_file)))
+        // /css/…, /js/…, /lobby.html, etc.
+        .route_service("/*path", get_service(ServeDir::new(static_dir)));
 
-    // 🔀 App principal combinada
+    /* ────────── app final ────────── */
     let app = Router::new()
-        .nest("/api", api)
-        .fallback_service(ServeDir::new(static_dir).append_index_html_on_directories(true))
-        .layer(cors);
+        .nest("/api", api)         // JSON bajo /api
+        .merge(static_root)        // todo lo público
+        .layer(
+            CorsLayer::new()       // CORS amplio para dev
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        );
 
-    // 🚀 Servidor HTTP
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    /* ────────── servidor ────────── */
+    let addr     = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await.unwrap();
     println!("✅ Servidor escuchando en http://{}", addr);
 

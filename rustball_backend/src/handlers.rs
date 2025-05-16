@@ -145,16 +145,15 @@ pub async fn post_formacion(
 }
 
 // 6. POST /registro
+use serde_json::json;
+
 #[axum::debug_handler]
 pub async fn post_registro(
     Extension(pool): Extension<MySqlPool>,
     Json(payload): Json<RegistroPayload>,
-) -> Result<Json<&'static str>, (StatusCode, String)> {
-    let result = sqlx::query!(
-        r#"
-        INSERT INTO Usuario (nombre_usuario, correo, contrasena)
-        VALUES (?, ?, ?)
-        "#,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let res = sqlx::query!(
+        "INSERT INTO Usuario (nombre_usuario, correo, contrasena) VALUES (?, ?, ?)",
         payload.nombre_usuario,
         payload.correo,
         payload.contrasena
@@ -162,8 +161,15 @@ pub async fn post_registro(
         .execute(&pool)
         .await;
 
-    match result {
-        Ok(_) => Ok(Json("✅ Usuario registrado")),
+    match res {
+        Ok(r) => {
+            let id = r.last_insert_id() as i32;
+            Ok(Json(json!({
+                "id_usuario": id,
+                "nombre_usuario": payload.nombre_usuario,
+                "correo": payload.correo
+            })))
+        }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }

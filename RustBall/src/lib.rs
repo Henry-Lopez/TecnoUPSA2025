@@ -17,6 +17,7 @@ use powerup::*;
 // 🔁 Entradas para WebAssembly y escritorio
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use crate::components::{PlayerDisk, PowerUpLabel};
 use crate::zone::apply_zone_effects;
 
 #[cfg(target_arch = "wasm32")]
@@ -205,9 +206,21 @@ pub fn main_internal() {
     fn cleanup_cameras_on_enter(mut commands: Commands, query: Query<Entity, With<Camera>>) {
         cleanup_cameras(&mut commands, query);
     }
+    pub fn debug_powerup_system(
+        labels: Query<Entity, With<PowerUpLabel>>,
+        disks: Query<(Entity, &Children), With<PlayerDisk>>,
+    ) {
+        // Imprime cuántos labels existen
+        println!("PowerUpLabels en el juego: {}", labels.iter().count());
 
+        // Verifica que cada disco tenga un label como hijo
+        for (disk_entity, children) in &disks {
+            let has_label = children.iter().any(|&child| labels.contains(child));
+            println!("Disco {:?} tiene label: {}", disk_entity, has_label);
+        }
+    }
     App::new()
-        // ───── Recursos iniciales ────────────────────────────────────────────────
+        /* ─────────────── Recursos iniciales ─────────────── */
         .insert_resource(AssetMetaCheck::Never)
         .insert_resource(GlobalVolume::new(1.0))
         .insert_resource(ClearColor(Color::BLACK))
@@ -218,7 +231,7 @@ pub fn main_internal() {
         .insert_resource(PowerUpControl::default())
         .insert_resource(EventControl::default())
 
-        // ───── Plugins ───────────────────────────────────────────────────────────
+        /* ─────────────── Plugins ─────────────────────────── */
         .add_plugins((
             DefaultPlugins.set(AssetPlugin {
                 watch_for_changes_override: Some(false),
@@ -232,7 +245,7 @@ pub fn main_internal() {
         })
         .add_event::<GoalEvent>()
 
-        // ───── Startup ───────────────────────────────────────────────────────────
+        /* ─────────────── Startup ─────────────────────────── */
         .add_systems(Startup, (
             setup_fonts,
             load_team_selection_music,
@@ -240,7 +253,7 @@ pub fn main_internal() {
             load_game_over_assets,
         ))
 
-        // ───── FormationSelection ────────────────────────────────────────────────
+        /* ───────── Formation Selection ───────────────────── */
         .add_systems(OnEnter(AppState::FormationSelection), (
             show_formation_ui_system,
             spawn_selection_background,
@@ -251,24 +264,24 @@ pub fn main_internal() {
             stop_selection_music,
         ))
 
-        // ───── FormationChange ───────────────────────────────────────────────────
+        /* ───────── Formation Change ──────────────────────── */
         .add_systems(OnEnter(AppState::FormationChange), (
             show_formation_ui_system,
             reset_for_formation,
             cleanup_power_bar,
         ))
 
-        // ───── InGame (OnEnter / OnExit) ─────────────────────────────────────────
+        /* ───────── In-Game (Enter / Exit) ────────────────── */
         .add_systems(OnEnter(AppState::InGame), (
             cleanup_formation_ui,
             cleanup_cameras_on_enter,
             play_ingame_music,
             setup,
-            attach_powerup_label_once,          // ← crea los textos vacíos
+            attach_powerup_label_once,   // crea los textos vacíos
         ))
         .add_systems(OnExit(AppState::InGame), stop_ingame_music)
 
-        // ───── Formation-UI actualizaciones ──────────────────────────────────────
+        /* ───────── Formation-UI updates ──────────────────── */
         .add_systems(Update, (
             handle_formation_click,
             animate_selection_buttons,
@@ -277,16 +290,17 @@ pub fn main_internal() {
                 .or_else(in_state(AppState::FormationChange))
         ))
 
-        // ───── Gameplay (Update) ─────────────────────────────────────────────────
+        /* ───────── Gameplay (Update) ─────────────────────── */
         .add_systems(Update, (
             auto_select_first_disk,
             cycle_disk_selection,
             aim_with_keyboard,
             charge_shot_power,
+            debug_powerup_system,        // ← solo una vez
         ).run_if(in_state(AppState::InGame)))
 
         .add_systems(Update, (
-            fire_selected_disk,
+            fire_selected_disk,          // ← ÚNICA vez que se ejecuta
             apply_zone_effects,
             check_turn_end,
             detect_goal,
@@ -298,7 +312,7 @@ pub fn main_internal() {
             update_score_text,
             animate_selected_disk,
             spawn_power_up_if_needed,
-            detect_powerup_collision,           // ← inserta PowerUpType
+            detect_powerup_collision,    // inserta PowerUpType
         ).run_if(in_state(AppState::InGame)))
 
         .add_systems(Update, (
@@ -308,20 +322,18 @@ pub fn main_internal() {
             hide_effect_text_if_none,
         ).run_if(in_state(AppState::InGame)))
 
-        // ───── PostUpdate (garantiza que los Commands ya se aplicaron) ───────────
+        /* ───────── PostUpdate ──────────────────────────────
+           aquí los Commands ya se aplicaron, los textos
+           ven PowerUpType y luego parpadean                 */
         .add_systems(PostUpdate, (
-            // textos de power-up (ya ven PowerUpType aplicado en el frame)
             update_powerup_labels,
             remove_powerup_label,
-            blink_powerup_labels,
-
-            // otros post-updates
-            fire_selected_disk,
             draw_aim_direction_gizmo,
             update_power_bar,
+                 // último: aplica alpha tras ser Visible
         ).run_if(in_state(AppState::InGame)))
 
-        // ───── GoalScored ────────────────────────────────────────────────────────
+        /* ───────── GoalScored ───────────────────────────── */
         .add_systems(OnEnter(AppState::GoalScored), (
             setup_goal_timer,
             play_goal_sound,
@@ -331,7 +343,7 @@ pub fn main_internal() {
             wait_and_change_state,
         ).run_if(in_state(AppState::GoalScored)))
 
-        // ───── GameOver ──────────────────────────────────────────────────────────
+        /* ───────── GameOver ─────────────────────────────── */
         .add_systems(OnEnter(AppState::GameOver), (
             despawn_game_entities,
             spawn_game_over_background,
