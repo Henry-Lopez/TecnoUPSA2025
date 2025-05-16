@@ -1,11 +1,14 @@
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::{RigidBody, Velocity};
 use bevy::input::keyboard::KeyCode;
+use bevy_rapier2d::prelude::{RigidBody, Velocity};
 
 use crate::components::*;
 use crate::powerup::PowerUpControl;
 use crate::resources::*;
 
+/* ───────────────────────────────────────────────────────────── */
+/* Seleccionar automáticamente la primera ficha de tu turno      */
+/* ───────────────────────────────────────────────────────────── */
 pub fn auto_select_first_disk(
     mut turn_state: ResMut<TurnState>,
     disks: Query<(Entity, &PlayerDisk), Without<TurnControlled>>,
@@ -18,7 +21,10 @@ pub fn auto_select_first_disk(
                 if let Ok(mut sprite) = sprites.get_mut(entity) {
                     sprite.color = Color::WHITE;
                 }
-                commands.entity(entity).insert(TurnControlled);
+                // ✔ solo insertamos si la entidad sigue viva
+                if let Some(mut ecmd) = commands.get_entity(entity) {
+                    ecmd.insert(TurnControlled);
+                }
                 turn_state.selected_entity = Some(entity);
                 break;
             }
@@ -26,6 +32,9 @@ pub fn auto_select_first_disk(
     }
 }
 
+/* ───────────────────────────────────────────────────────────── */
+/* Pulsar TAB para alternar ficha                               */
+/* ───────────────────────────────────────────────────────────── */
 pub fn cycle_disk_selection(
     keys: Res<Input<KeyCode>>,
     disks: Query<(Entity, &PlayerDisk), With<RigidBody>>,
@@ -34,42 +43,53 @@ pub fn cycle_disk_selection(
     mut commands: Commands,
 ) {
     if keys.just_pressed(KeyCode::Tab) && !turn_state.in_motion {
+        // 1. recopila fichas del jugador activo
         let mut player_disks: Vec<_> = disks
             .iter()
             .filter(|(_, d)| d.player_id == turn_state.current_turn)
             .collect();
-
         player_disks.sort_by_key(|(e, _)| e.index());
 
-        if !player_disks.is_empty() {
-            let current_index = turn_state.selected_entity.and_then(|current| {
-                player_disks.iter().position(|(e, _)| *e == current)
-            });
+        if player_disks.is_empty() {
+            return;
+        }
 
-            if let Some(current) = turn_state.selected_entity {
-                if let Ok(mut sprite) = sprites.get_mut(current) {
-                    sprite.color = Color::WHITE;
-                }
-                commands.entity(current).remove::<TurnControlled>();
-            }
-
-            let next_index = match current_index {
-                Some(i) => (i + 1) % player_disks.len(),
-                None => 0,
-            };
-
-            let (new_entity, _) = player_disks[next_index];
-            if let Ok(mut sprite) = sprites.get_mut(new_entity) {
+        // 2. quita selección actual (si existe)
+        if let Some(current) = turn_state.selected_entity {
+            if let Ok(mut sprite) = sprites.get_mut(current) {
                 sprite.color = Color::WHITE;
             }
-            commands.entity(new_entity).insert(TurnControlled);
-            turn_state.selected_entity = Some(new_entity);
-            turn_state.aim_direction = Vec2::ZERO;
-            turn_state.power = 0.0;
+            if let Some(mut ecmd) = commands.get_entity(current) {
+                ecmd.remove::<TurnControlled>();
+            }
         }
+
+        // 3. decide el índice del siguiente disco
+        let current_index = turn_state.selected_entity.and_then(|cur| {
+            player_disks.iter().position(|(e, _)| *e == cur)
+        });
+        let next_index = current_index
+            .map(|i| (i + 1) % player_disks.len())
+            .unwrap_or(0);
+
+        // 4. aplica nueva selección
+        let (new_entity, _) = player_disks[next_index];
+        if let Ok(mut sprite) = sprites.get_mut(new_entity) {
+            sprite.color = Color::WHITE;
+        }
+        if let Some(mut ecmd) = commands.get_entity(new_entity) {
+            ecmd.insert(TurnControlled);
+        }
+        turn_state.selected_entity = Some(new_entity);
+        turn_state.aim_direction = Vec2::ZERO;
+        turn_state.power = 0.0;
     }
 }
 
+/* ───────────────────────────────────────────────────────────── */
+/* Comprobar fin de turno                                       */
+/* (sin cambios sustanciales; solo conserva la lógica original)  */
+/* ───────────────────────────────────────────────────────────── */
 pub fn check_turn_end(
     mut turn_state: ResMut<TurnState>,
     velocities: Query<&Velocity, With<RigidBody>>,
@@ -78,49 +98,46 @@ pub fn check_turn_end(
     mut sprites: Query<&mut Sprite>,
     disks: Query<&PlayerDisk>,
     mut powerup_control: ResMut<PowerUpControl>,
-    mut event_control: ResMut<EventControl>, // ✅ Correctamente añadido
+    mut event_control: ResMut<EventControl>,
 ) {
     if !turn_state.in_motion {
         return;
     }
 
     let threshold = 0.5;
-    let all_stopped = velocities.iter().all(|v| v.linvel.length_squared() < threshold);
+    let all_stopped = velocities
+        .iter()
+        .all(|v| v.linvel.length_squared() < threshold);
 
     if all_stopped {
         turn_state.in_motion = false;
 
         for entity in &entities {
-            if let Ok(_) = disks.get(entity) {
+            if disks.get(entity).is_ok() {
                 if let Ok(mut sprite) = sprites.get_mut(entity) {
                     sprite.color = Color::WHITE;
                 }
             }
-            commands.entity(entity).remove::<TurnControlled>();
+            if let Some(mut ecmd) = commands.get_entity(entity) {
+                ecmd.remove::<TurnControlled>();
+            }
         }
 
         turn_state.selected_entity = None;
 
         if turn_state.skip_turn_switch {
-            println!("⏭️ Power-Up de DOBLE TURNO: turno no cambiado");
+            println!("⏭️ Power-Up DOBLE TURNO: se mantiene el jugador.");
             turn_state.skip_turn_switch = false;
         } else {
             turn_state.current_turn = turn_state.current_turn % 2 + 1;
         }
 
-        // ✅ Incrementa solo si no hay evento activo
         if !event_control.event_active {
             event_control.turns_since_last += 1;
         }
-
         powerup_control.turns_since_last += 1;
 
-        println!("🔁 Turno terminado, contador power-ups: {}", powerup_control.turns_since_last);
-        println!("🎲 Turnos desde último evento: {}", event_control.turns_since_last);
+        println!("🔁 Fin de turno. Power-ups: {}, Eventos: {}",
+                 powerup_control.turns_since_last, event_control.turns_since_last);
     }
 }
-
-
-
-
-

@@ -33,6 +33,7 @@ async fn main() {
         .route("/estadisticas/:id_usuario", get(handlers::get_estadisticas))
         .route("/formacion",          post(handlers::post_formacion))
         .route("/registro",           post(handlers::post_registro))
+        .route("/login", post(handlers::post_login))
         .route("/partida",            post(handlers::post_partida))
         .layer(Extension(db_pool));
 

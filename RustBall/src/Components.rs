@@ -45,3 +45,6 @@ pub struct PowerUpLabel;
 /// Componente opcional si usás visibilidad en vez de despawn
 #[derive(Component)]
 pub struct PowerUpLabelVisibility;
+
+#[derive(Component)]
+pub struct GameplayEntity;   // marcador vacío

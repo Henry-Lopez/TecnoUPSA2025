@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use serde::Deserialize;
 use sqlx::MySqlPool;
 use crate::models::*;
 
@@ -251,4 +252,33 @@ pub async fn post_partida(
     };
 
     Ok(Json(partida))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoginPayload {
+    pub nombre_usuario: String,
+    pub contrasena: String,
+}
+
+#[axum::debug_handler]
+pub async fn post_login(
+    Extension(pool): Extension<MySqlPool>,
+    Json(payload): Json<LoginPayload>,
+) -> Result<Json<Usuario>, (StatusCode, String)> {
+    let resultado = sqlx::query_as!(
+        Usuario,
+        "SELECT id_usuario, nombre_usuario, correo, contrasena
+         FROM Usuario
+         WHERE nombre_usuario = ? AND contrasena = ?",
+        payload.nombre_usuario,
+        payload.contrasena
+    )
+        .fetch_optional(&pool)
+        .await;
+
+    match resultado {
+        Ok(Some(usuario)) => Ok(Json(usuario)),
+        Ok(None) => Err((StatusCode::UNAUTHORIZED, "Credenciales inválidas".to_string())),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
 }

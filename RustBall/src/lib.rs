@@ -330,7 +330,7 @@ pub fn main_internal() {
             remove_powerup_label,
             draw_aim_direction_gizmo,
             update_power_bar,
-                 // último: aplica alpha tras ser Visible
+            // último: aplica alpha tras ser Visible
         ).run_if(in_state(AppState::InGame)))
 
         /* ───────── GoalScored ───────────────────────────── */
