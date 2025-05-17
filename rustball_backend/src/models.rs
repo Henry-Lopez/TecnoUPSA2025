@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime};
 use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,8 +58,14 @@ pub struct PartidaPayload {
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Partida {
-    pub id_partida: i32,
+    pub id_partida:  i32,
     pub id_usuario_1: i32,
     pub id_usuario_2: i32,
-    pub fecha_creacion: Option<NaiveDateTime>,
+    pub fecha_creacion: Option<NaiveDateTime>,   // ← otra vez NaiveDateTime
+}
+
+#[derive(serde::Deserialize)]
+pub struct GolPayload {
+    pub id_partida:  i32,
+    pub id_goleador: i32,   // jugador que anotó
 }

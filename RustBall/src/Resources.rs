@@ -72,6 +72,20 @@ pub struct EventControl {
 }
 
 
+/// Información que el juego necesita para
+/// notificar al backend (Axum) eventos como goles.
+#[derive(Resource, Debug)]
+pub struct BackendInfo {
+    pub partida_id: i32,
+    pub id_left:    i32,
+    pub id_right:   i32,
+}
+impl BackendInfo {
+    pub fn new(partida_id: i32, id_left: i32, id_right: i32) -> Self {
+        Self { partida_id, id_left, id_right }
+    }
+}
+
 
 
 

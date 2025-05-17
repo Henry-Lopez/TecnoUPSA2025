@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>RustBall – Lobby</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<img src="img/messi.png" class="futbolista-izquierda" alt="">
+<img src="img/cr77.png"  class="futbolista-derecha"  alt="">
+
+<h1>⚽ RustBall</h1>
+
+<div id="partida-container">
+  <h2>🎮 Buscar/Iniciar Partida</h2>
+  <p>Sesión iniciada como: <strong id="lbl-user"></strong></p>
+
+  <div class="input-group">
+    <input type="hidden" id="usuario-1">
+    <input type="number" id="usuario-2" placeholder="ID Usuario rival">
+    <button id="btn-partida">Buscar/Iniciar Partida</button>
+  </div>
+
+  <div class="input-group">
+    <button id="btn-estadisticas">📊 Ver Estadísticas</button>
+    <button id="btn-partidas">📁 Ver Mis Partidas</button>
+  </div>
+</div>
+
+<pre id="resultado">Esperando acción…</pre>
+
+<!-- ✅ Solo una vez el JS -->
+<script type="module" src="js/lobby.js"></script>
+</body>
+</html>

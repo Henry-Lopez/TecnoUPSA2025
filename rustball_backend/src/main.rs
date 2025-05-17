@@ -35,11 +35,13 @@ async fn main() {
         .route("/registro",           post(handlers::post_registro))
         .route("/login", post(handlers::post_login))
         .route("/partida",            post(handlers::post_partida))
+        .route("/mis_partidas/:id_usuario", get(handlers::get_mis_partidas))
+        .route("/gol", post(handlers::post_gol))
         .layer(Extension(db_pool));
 
     /* ────────── archivos estáticos ────────── */
     // .../rustball_workspace/frontend
-    let static_dir: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend");
+    let static_dir: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("./webapp");
     let registro_file       = static_dir.join("registro.html");
 
     let static_root = Router::new()

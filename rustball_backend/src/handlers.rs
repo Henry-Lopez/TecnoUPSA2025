@@ -282,3 +282,81 @@ pub async fn post_login(
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
+
+#[axum::debug_handler]
+pub async fn get_mis_partidas(
+    Path(id_usuario): Path<i32>,
+    Extension(pool): Extension<MySqlPool>,
+) -> Result<Json<Vec<Partida>>, (StatusCode, String)> {
+    let partidas = sqlx::query_as!(
+    Partida,
+    r#"
+    SELECT
+        id_partida,
+        id_jugador1 AS id_usuario_1,
+        id_jugador2 AS id_usuario_2,
+        --  ⬇  forzamos el alias y el tipo esperado
+        fecha_inicio AS `fecha_creacion: chrono::NaiveDateTime`
+    FROM Partida
+    WHERE id_jugador1 = ? OR id_jugador2 = ?
+    ORDER BY fecha_inicio DESC
+    "#,
+    id_usuario,
+    id_usuario
+)
+        .fetch_all(&pool)
+        .await;
+    match partidas {
+        Ok(p) => Ok(Json(p)),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn post_gol(
+    Extension(pool): Extension<MySqlPool>,
+    Json(p): Json<GolPayload>,
+) -> Result<Json<(i32, i32)>, (StatusCode, String)> {
+    // Obtener quién es j1 y j2
+    let row = sqlx::query!(
+        "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
+        p.id_partida
+    )
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+
+    // Ejecutar el UPDATE correcto
+    if p.id_goleador == row.id_jugador1 {
+        sqlx::query!(
+            "UPDATE Partida SET gol_j1 = gol_j1 + 1 WHERE id_partida = ?",
+            p.id_partida
+        )
+            .execute(&pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    } else {
+        sqlx::query!(
+            "UPDATE Partida SET gol_j2 = gol_j2 + 1 WHERE id_partida = ?",
+            p.id_partida
+        )
+            .execute(&pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+
+    // Consultar marcador actualizado
+    let marcador = sqlx::query!(
+        "SELECT gol_j1, gol_j2 FROM Partida WHERE id_partida = ?",
+        p.id_partida
+    )
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json((
+        marcador.gol_j1.unwrap_or(0),
+        marcador.gol_j2.unwrap_or(0),
+    )))
+
+}

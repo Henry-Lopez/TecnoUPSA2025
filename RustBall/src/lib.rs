@@ -246,6 +246,8 @@ pub fn main_internal() {
         .add_event::<GoalEvent>()
 
         /* ─────────────── Startup ─────────────────────────── */
+        // ✅ 2) agrega aquí el sistema que crea BackendInfo
+        .add_systems(Startup, insert_backend_info)
         .add_systems(Startup, (
             setup_fonts,
             load_team_selection_music,
@@ -296,7 +298,8 @@ pub fn main_internal() {
             cycle_disk_selection,
             aim_with_keyboard,
             charge_shot_power,
-            debug_powerup_system,        // ← solo una vez
+            debug_powerup_system,
+            send_goal_to_backend,// ← solo una vez
         ).run_if(in_state(AppState::InGame)))
 
         .add_systems(Update, (
