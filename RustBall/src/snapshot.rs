@@ -73,7 +73,6 @@ pub fn snapshot_apply_system(
     mut commands: Commands,
     mut scores: ResMut<Scores>,
     mut ts: ResMut<TurnState>,
-    mut my_turn: ResMut<MyTurn>,
     mut ultimo_turno: ResMut<UltimoTurnoAplicado>,
     mut current_player_id: ResMut<CurrentPlayerId>,
     q_disks: Query<Entity, With<PlayerDisk>>,
@@ -81,6 +80,7 @@ pub fn snapshot_apply_system(
     mut next_state: ResMut<NextState<AppState>>,
     asset_server: Res<AssetServer>,
     backend_info: Res<BackendInfo>,
+    my_turn: Option<ResMut<MyTurn>>, // <- Acepta opcional para fallback
 ) {
     let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else {
         return;
@@ -136,7 +136,20 @@ pub fn snapshot_apply_system(
     ts.selected_entity = None;
     ts.skip_turn_switch = false;
 
-    my_turn.0 = snap.proximo_turno == my_uid;
+    // ✅ Determinar si es mi turno (seguro)
+    let is_my_turn = snap.proximo_turno == my_uid;
+    println!(
+        "🌀 Soy UID {}, turno_actual = {} → ¿Me toca? {}",
+        my_uid, snap.proximo_turno, is_my_turn
+    );
+
+    match my_turn {
+        Some(mut mt) => mt.0 = is_my_turn,
+        None => {
+            commands.insert_resource(MyTurn(is_my_turn));
+        }
+    }
+
     current_player_id.0 = snap.proximo_turno;
 
     if *state != AppState::InGame && snap.proximo_turno != 0 {

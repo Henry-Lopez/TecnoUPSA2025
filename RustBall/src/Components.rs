@@ -49,3 +49,6 @@ pub struct PowerUpLabelVisibility;
 
 #[derive(Component)]
 pub struct GameplayEntity;   // marcador vacío
+
+#[derive(Component)]
+pub struct OwnedBy(pub i32);  // 👤 ID real del dueño de la ficha

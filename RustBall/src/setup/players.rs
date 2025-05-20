@@ -50,8 +50,9 @@ pub fn spawn_players_from_selection(
                 Sleeping::disabled(),
                 PlayerDisk {
                     player_id: 1,
-                    id_usuario_real: backend_info.id_left, // ✅ usamos BackendInfo
+                    id_usuario_real: backend_info.id_left,
                 },
+                OwnedBy(backend_info.id_left), // 👈 Aquí se especifica el dueño
             ));
         }
     }
@@ -84,8 +85,9 @@ pub fn spawn_players_from_selection(
                 Sleeping::disabled(),
                 PlayerDisk {
                     player_id: 2,
-                    id_usuario_real: backend_info.id_right, // ✅ usamos BackendInfo
+                    id_usuario_real: backend_info.id_right,
                 },
+                OwnedBy(backend_info.id_right), // 👈 Aquí también
             ));
         }
     }

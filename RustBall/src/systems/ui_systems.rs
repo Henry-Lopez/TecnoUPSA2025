@@ -9,15 +9,20 @@ use crate::formation_selection::SelectionButton;
 
 use crate::snapshot::CurrentPlayerId;
 
+use crate::resources::BackendInfo;
+
 pub fn update_turn_text(
-    turn_state: Res<TurnState>,
     current_player_id: Res<CurrentPlayerId>,
+    backend_info: Res<BackendInfo>,
     mut query: Query<&mut Text, With<TurnText>>,
 ) {
-    if turn_state.is_changed() || current_player_id.is_changed() {
+    if current_player_id.is_changed() {
         for mut text in &mut query {
-            text.sections[0].value =
-                format!("🎯 Turno actual: Jugador {}", current_player_id.0);
+            if current_player_id.0 == backend_info.my_uid {
+                text.sections[0].value = "🎯 Tu turno".to_string();
+            } else {
+                text.sections[0].value = "⏳ Turno del rival".to_string();
+            }
         }
     }
 }
