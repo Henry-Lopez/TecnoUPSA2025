@@ -2,14 +2,15 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
 use crate::components::*;
-use crate::resources::{PlayerFormations};
+use crate::resources::{PlayerFormations, BackendInfo};
 use crate::formation::get_formation_positions;
 
 pub fn spawn_players_from_selection(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
     formations: Res<PlayerFormations>,
-    existing_players: Query<Entity, With<PlayerDisk>>, // ✅ añadimos query
+    backend_info: Res<BackendInfo>,
+    existing_players: Query<Entity, With<PlayerDisk>>,
 ) {
     let damping = Damping {
         linear_damping: 2.0,
@@ -47,7 +48,10 @@ pub fn spawn_players_from_selection(
                 damping.clone(),
                 LockedAxes::ROTATION_LOCKED,
                 Sleeping::disabled(),
-                PlayerDisk { player_id: 1 },
+                PlayerDisk {
+                    player_id: 1,
+                    id_usuario_real: backend_info.id_left, // ✅ usamos BackendInfo
+                },
             ));
         }
     }
@@ -78,9 +82,11 @@ pub fn spawn_players_from_selection(
                 damping.clone(),
                 LockedAxes::ROTATION_LOCKED,
                 Sleeping::disabled(),
-                PlayerDisk { player_id: 2 },
+                PlayerDisk {
+                    player_id: 2,
+                    id_usuario_real: backend_info.id_right, // ✅ usamos BackendInfo
+                },
             ));
         }
     }
 }
-

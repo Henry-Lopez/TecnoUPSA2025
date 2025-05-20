@@ -22,7 +22,8 @@ gloo-net            = "0.5"     # solo WASM
 wasm-bindgen-futures = "0.4"    # solo WASM
 log                 = "0.4"     # solo WASM
 wasm-logger         = "0.2"     # solo WASM
-
+gloo-timers = "0.3"
+once_cell   = "1.19"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio               = { version = "1.38", features = ["full"] }
 uuid                = { version = "1.3", features = ["v4"] }

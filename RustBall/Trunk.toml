@@ -1,5 +1,5 @@
 [build]
-dist = "../frontend/game"
+dist = "../rustball_backend/webapp/game"  # <-- carpeta que ya sirves con Axum
 public_url = "/game"
 release = true     # (opcional) siempre build --release
 filehash = false   # (opcional) si no quieres hashes

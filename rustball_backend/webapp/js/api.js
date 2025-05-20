@@ -1,34 +1,38 @@
-/* Pequeño wrapper para las llamadas a /api */
-const BASE = "/api";
+// js/api.js
+const BASE = "http://localhost:3000/api";
 
-/* POST con body JSON ------------------------------------------------------ */
+/* POST con body JSON */
 export async function post(path, payload) {
-    const res  = await fetch(`${BASE}${path}`, {
-        method : "POST",
+    const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body   : JSON.stringify(payload),
+        body: JSON.stringify(payload),
     });
 
-    /* intentamos parsear JSON; si falla, devolvemos texto */
-    let data;
-    try   { data = await res.json(); }
-    catch { data = await res.text(); }
+    const contentType = res.headers.get("content-type");
+    const data = contentType && contentType.includes("application/json")
+        ? await res.json()
+        : await res.text();
 
     if (!res.ok) {
-        throw new Error(data?.error || res.statusText);
+        throw new Error(typeof data === "string" ? data : data?.error || res.statusText);
     }
+
     return data;
 }
 
-/* GET (por si lo necesitas más adelante) ---------------------------------- */
+/* GET simple */
 export async function get(path) {
     const res = await fetch(`${BASE}${path}`);
-    let data;
-    try   { data = await res.json(); }
-    catch { data = await res.text(); }
+
+    const contentType = res.headers.get("content-type");
+    const data = contentType && contentType.includes("application/json")
+        ? await res.json()
+        : await res.text();
 
     if (!res.ok) {
-        throw new Error(data?.error || res.statusText);
+        throw new Error(typeof data === "string" ? data : data?.error || res.statusText);
     }
+
     return data;
 }

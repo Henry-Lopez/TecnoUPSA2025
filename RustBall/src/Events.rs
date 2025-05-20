@@ -12,4 +12,13 @@ pub enum RandomEvent {
     BouncePad,
 }
 
+#[derive(Event)]
+pub struct FormationChosenEvent {
+    pub formacion: String,   // "1-2-1-1", etc.
+    pub turno_inicio: i32,
+}
+
+#[derive(Event)]
+pub struct TurnFinishedEvent;
+
 

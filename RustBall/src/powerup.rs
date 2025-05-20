@@ -145,7 +145,6 @@ pub fn attach_powerup_label_once(
                 ..default()
             },
             PowerUpLabel,
-            Visibility::Hidden,
         )).id();
 
         commands.entity(disk).add_child(label);

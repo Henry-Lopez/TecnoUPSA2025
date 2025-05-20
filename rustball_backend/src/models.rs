@@ -62,10 +62,25 @@ pub struct Partida {
     pub id_usuario_1: i32,
     pub id_usuario_2: i32,
     pub fecha_creacion: Option<NaiveDateTime>,   // ← otra vez NaiveDateTime
+    pub estado: String,
 }
 
 #[derive(serde::Deserialize)]
 pub struct GolPayload {
     pub id_partida:  i32,
     pub id_goleador: i32,   // jugador que anotó
+}
+#[derive(Serialize)]
+pub struct FormacionData {
+    pub id_usuario: i32,
+    pub formacion : String,
+    pub turno_inicio: i32,
+}
+
+#[derive(Serialize)]
+pub struct Snapshot {
+    pub marcador       : (i32, i32),
+    pub formaciones    : Vec<FormacionData>,
+    pub turnos         : Vec<TurnoData>,   // ya lo tienes
+    pub proximo_turno  : i32,              // id_usuario al que le toca
 }

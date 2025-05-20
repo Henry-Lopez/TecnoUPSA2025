@@ -90,54 +90,68 @@ pub fn cycle_disk_selection(
 /* Comprobar fin de turno                                       */
 /* (sin cambios sustanciales; solo conserva la lógica original)  */
 /* ───────────────────────────────────────────────────────────── */
+use crate::events::TurnFinishedEvent;      // ⬅ importa el evento
+
 pub fn check_turn_end(
-    mut turn_state: ResMut<TurnState>,
-    velocities: Query<&Velocity, With<RigidBody>>,
-    mut commands: Commands,
-    entities: Query<Entity, With<TurnControlled>>,
-    mut sprites: Query<&mut Sprite>,
-    disks: Query<&PlayerDisk>,
-    mut powerup_control: ResMut<PowerUpControl>,
-    mut event_control: ResMut<EventControl>,
+    mut turn_state      : ResMut<TurnState>,
+    velocities          : Query<&Velocity, With<RigidBody>>,
+    mut commands        : Commands,
+    entities            : Query<Entity, With<TurnControlled>>,
+    mut sprites         : Query<&mut Sprite>,
+    disks               : Query<&PlayerDisk>,
+    mut powerup_control : ResMut<PowerUpControl>,
+    mut event_control   : ResMut<EventControl>,
+    mut turn_finished   : EventWriter<TurnFinishedEvent>,   // ⬅ NUEVO
 ) {
+    // Si ninguna ficha está en movimiento, no hacemos nada.
     if !turn_state.in_motion {
         return;
     }
 
-    let threshold = 0.5;
+    // ¿Ya frenaron todas las rigid-bodies?
+    let threshold     = 0.5;
     let all_stopped = velocities
         .iter()
         .all(|v| v.linvel.length_squared() < threshold);
 
-    if all_stopped {
-        turn_state.in_motion = false;
-
-        for entity in &entities {
-            if disks.get(entity).is_ok() {
-                if let Ok(mut sprite) = sprites.get_mut(entity) {
-                    sprite.color = Color::WHITE;
-                }
-            }
-            if let Some(mut ecmd) = commands.get_entity(entity) {
-                ecmd.remove::<TurnControlled>();
-            }
-        }
-
-        turn_state.selected_entity = None;
-
-        if turn_state.skip_turn_switch {
-            println!("⏭️ Power-Up DOBLE TURNO: se mantiene el jugador.");
-            turn_state.skip_turn_switch = false;
-        } else {
-            turn_state.current_turn = turn_state.current_turn % 2 + 1;
-        }
-
-        if !event_control.event_active {
-            event_control.turns_since_last += 1;
-        }
-        powerup_control.turns_since_last += 1;
-
-        println!("🔁 Fin de turno. Power-ups: {}, Eventos: {}",
-                 powerup_control.turns_since_last, event_control.turns_since_last);
+    if !all_stopped {
+        return;                    // siguen moviéndose → salimos
     }
+
+    /* ─────────── Fin del turno: lógica existente ─────────── */
+    turn_state.in_motion = false;
+
+    for entity in &entities {
+        if disks.get(entity).is_ok() {
+            if let Ok(mut sprite) = sprites.get_mut(entity) {
+                sprite.color = Color::WHITE;
+            }
+        }
+        if let Some(mut ecmd) = commands.get_entity(entity) {
+            ecmd.remove::<TurnControlled>();
+        }
+    }
+
+    turn_state.selected_entity = None;
+
+    if turn_state.skip_turn_switch {
+        println!("⏭️ Power-Up DOBLE TURNO: se mantiene el jugador.");
+        turn_state.skip_turn_switch = false;
+    } else {
+        turn_state.current_turn = turn_state.current_turn % 2 + 1;
+    }
+
+    if !event_control.event_active {
+        event_control.turns_since_last += 1;
+    }
+    powerup_control.turns_since_last += 1;
+
+    println!(
+        "🔁 Fin de turno. Power-ups: {}, Eventos: {}",
+        powerup_control.turns_since_last, event_control.turns_since_last
+    );
+
+    /* ─────────── Notificar al backend ─────────── */
+    turn_finished.send(TurnFinishedEvent);   // 👈 ¡aquí!
 }
+

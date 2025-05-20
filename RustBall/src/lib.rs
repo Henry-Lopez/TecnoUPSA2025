@@ -2,22 +2,33 @@
 pub mod components;
 pub mod resources;
 pub mod events;
-pub mod systems;
+pub mod systems;          //  ← módulo-contenedor
 pub mod setup;
 pub mod formation;
 pub mod formation_selection;
 pub mod game_over;
 mod powerup;
 pub mod zone;
-
+mod snapshot;
 
 use bevy::asset::AssetMetaCheck;
 use powerup::*;
 
+use once_cell::sync::OnceCell;
+use std::sync::Mutex;
+use crate::resources::WsInbox;
+
+// 🔐 Caja estática para uso desde JS → Bevy (solo en WASM)
+#[cfg(target_arch = "wasm32")]
+static WS_INBOX: OnceCell<Mutex<WsInbox>> = OnceCell::new();
+
 // 🔁 Entradas para WebAssembly y escritorio
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::wasm_bindgen;
+
 use crate::components::{PlayerDisk, PowerUpLabel};
+use crate::events::{FormationChosenEvent, TurnFinishedEvent};
 use crate::zone::apply_zone_effects;
 
 #[cfg(target_arch = "wasm32")]
@@ -25,9 +36,32 @@ use crate::zone::apply_zone_effects;
 pub fn start() {
     main_internal();
 }
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn main() {
     main_internal();
+}
+
+// 📤 JS → Rust: permite enviar string por WebSocket desde JS
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = sendOverWS)]
+    fn send_over_ws(msg: &str);
+}
+
+// 📥 Mensajes que llegan desde JS WebSocket → se guardan en `WsInbox`
+#[wasm_bindgen]
+pub fn receive_ws_message(msg: String) {
+    web_sys::console::log_1(&format!("📥 Mensaje desde JS: {}", msg).into());
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(lock) = WS_INBOX.get() {
+            if let Ok(mut inbox) = lock.lock() {
+                inbox.0.push(msg);
+            }
+        }
+    }
 }
 
 // 🎮 Juego real
@@ -206,21 +240,31 @@ pub fn main_internal() {
     fn cleanup_cameras_on_enter(mut commands: Commands, query: Query<Entity, With<Camera>>) {
         cleanup_cameras(&mut commands, query);
     }
+
     pub fn debug_powerup_system(
         labels: Query<Entity, With<PowerUpLabel>>,
         disks: Query<(Entity, &Children), With<PlayerDisk>>,
     ) {
-        // Imprime cuántos labels existen
         println!("PowerUpLabels en el juego: {}", labels.iter().count());
 
-        // Verifica que cada disco tenga un label como hijo
         for (disk_entity, children) in &disks {
             let has_label = children.iter().any(|&child| labels.contains(child));
             println!("Disco {:?} tiene label: {}", disk_entity, has_label);
         }
     }
-    App::new()
-        /* ─────────────── Recursos iniciales ─────────────── */
+
+    pub fn check_both_formations_chosen(
+        formations: Res<PlayerFormations>,
+        mut next_state: ResMut<NextState<AppState>>,
+    ) {
+        if formations.player1.is_some() && formations.player2.is_some() {
+            next_state.set(AppState::InGame);
+        }
+    }
+
+    let mut app = App::new();
+
+    app
         .insert_resource(AssetMetaCheck::Never)
         .insert_resource(GlobalVolume::new(1.0))
         .insert_resource(ClearColor(Color::BLACK))
@@ -230,8 +274,32 @@ pub fn main_internal() {
         .insert_resource(PlayerFormations { player1: None, player2: None })
         .insert_resource(PowerUpControl::default())
         .insert_resource(EventControl::default())
+        .insert_resource(snapshot::MyTurn::default())
+        .insert_resource(snapshot::CurrentPlayerId::default())
+        .insert_resource(poll_turn::PollState::default())
+        .insert_resource(UltimoTurnoAplicado::default())
+    ;
 
-        /* ─────────────── Plugins ─────────────────────────── */
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::snapshot::{LatestSnapshot, SnapshotPollTimer, poll_snapshot_when_forming};
+
+        WS_INBOX.set(Mutex::new(WsInbox::default())).ok(); // ✅ inicializamos la caja
+        app.insert_resource(WsInbox::default());
+
+        app
+            .insert_resource(LatestSnapshot::default())
+            .insert_resource(SnapshotPollTimer::default())
+            .add_systems(Update, poll_snapshot_when_forming.run_if(
+                in_state(AppState::FormationSelection)
+                    .or_else(in_state(AppState::FormationChange)),
+            ))
+            .add_systems(Update, process_ws_messages.run_if(
+                in_state(AppState::InGame) // ✅ Procesa mensajes WS en InGame
+            ));
+    }
+
+    app
         .add_plugins((
             DefaultPlugins.set(AssetPlugin {
                 watch_for_changes_override: Some(false),
@@ -244,9 +312,12 @@ pub fn main_internal() {
             ..default()
         })
         .add_event::<GoalEvent>()
+        .add_event::<FormationChosenEvent>()
+        .add_event::<TurnFinishedEvent>()
+        .add_systems(Update, handle_turn_finished_event.run_if(
+            in_state(AppState::InGame)
+        ))
 
-        /* ─────────────── Startup ─────────────────────────── */
-        // ✅ 2) agrega aquí el sistema que crea BackendInfo
         .add_systems(Startup, insert_backend_info)
         .add_systems(Startup, (
             setup_fonts,
@@ -254,8 +325,6 @@ pub fn main_internal() {
             load_background_image,
             load_game_over_assets,
         ))
-
-        /* ───────── Formation Selection ───────────────────── */
         .add_systems(OnEnter(AppState::FormationSelection), (
             show_formation_ui_system,
             spawn_selection_background,
@@ -265,78 +334,77 @@ pub fn main_internal() {
             despawn_selection_background,
             stop_selection_music,
         ))
-
-        /* ───────── Formation Change ──────────────────────── */
+        .add_systems(Update, (
+            handle_formation_click,
+            animate_selection_buttons,
+            send_formacion_to_backend,
+        ).run_if(
+            in_state(AppState::FormationSelection)
+                .or_else(in_state(AppState::FormationChange)),
+        ))
+        .add_systems(Update, check_both_formations_chosen.run_if(
+            in_state(AppState::FormationSelection)
+        ))
         .add_systems(OnEnter(AppState::FormationChange), (
             show_formation_ui_system,
             reset_for_formation,
             cleanup_power_bar,
         ))
-
-        /* ───────── In-Game (Enter / Exit) ────────────────── */
         .add_systems(OnEnter(AppState::InGame), (
             cleanup_formation_ui,
             cleanup_cameras_on_enter,
             play_ingame_music,
             setup,
-            attach_powerup_label_once,   // crea los textos vacíos
+            attach_powerup_label_once,
         ))
         .add_systems(OnExit(AppState::InGame), stop_ingame_music)
-
-        /* ───────── Formation-UI updates ──────────────────── */
-        .add_systems(Update, (
-            handle_formation_click,
-            animate_selection_buttons,
-        ).run_if(
+        .add_systems(Update, snapshot::snapshot_apply_system.run_if(
             in_state(AppState::FormationSelection)
                 .or_else(in_state(AppState::FormationChange))
+                .or_else(in_state(AppState::InGame)) // 👈 AGREGADO
         ))
-
-        /* ───────── Gameplay (Update) ─────────────────────── */
+        .add_systems(Update, poll_turn::poll_turn_tick_system.run_if(
+            in_state(AppState::InGame)
+        ))
+        .add_systems(Update, handle_turn_finished_event.run_if(
+            in_state(AppState::InGame)
+        ))
         .add_systems(Update, (
             auto_select_first_disk,
             cycle_disk_selection,
             aim_with_keyboard,
             charge_shot_power,
             debug_powerup_system,
-            send_goal_to_backend,// ← solo una vez
-        ).run_if(in_state(AppState::InGame)))
-
+            send_goal_to_backend,
+        ).run_if(|t: Res<snapshot::MyTurn>| t.0)
+            .run_if(in_state(AppState::InGame)))
         .add_systems(Update, (
-            fire_selected_disk,          // ← ÚNICA vez que se ejecuta
+            fire_selected_disk,
             apply_zone_effects,
             check_turn_end,
+            send_turn_to_backend,
             detect_goal,
             handle_goal,
         ).run_if(in_state(AppState::InGame)))
-
         .add_systems(Update, (
             update_turn_text,
             update_score_text,
             animate_selected_disk,
             spawn_power_up_if_needed,
-            detect_powerup_collision,    // inserta PowerUpType
+            detect_powerup_collision,
         ).run_if(in_state(AppState::InGame)))
-
         .add_systems(Update, (
             trigger_random_event_system,
             update_zone_lifetime,
             update_active_effect_text,
             hide_effect_text_if_none,
         ).run_if(in_state(AppState::InGame)))
-
-        /* ───────── PostUpdate ──────────────────────────────
-           aquí los Commands ya se aplicaron, los textos
-           ven PowerUpType y luego parpadean                 */
         .add_systems(PostUpdate, (
             update_powerup_labels,
             remove_powerup_label,
             draw_aim_direction_gizmo,
             update_power_bar,
-            // último: aplica alpha tras ser Visible
         ).run_if(in_state(AppState::InGame)))
-
-        /* ───────── GoalScored ───────────────────────────── */
         .add_systems(OnEnter(AppState::GoalScored), (
             setup_goal_timer,
             play_goal_sound,
@@ -345,8 +413,6 @@ pub fn main_internal() {
             goal_banner_fadeout,
             wait_and_change_state,
         ).run_if(in_state(AppState::GoalScored)))
-
-        /* ───────── GameOver ─────────────────────────────── */
         .add_systems(OnEnter(AppState::GameOver), (
             despawn_game_entities,
             spawn_game_over_background,
@@ -358,6 +424,5 @@ pub fn main_internal() {
             stop_game_over_music,
             cleanup_game_over_ui,
         ))
-
         .run();
 }
