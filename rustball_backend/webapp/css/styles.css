@@ -147,6 +147,7 @@ pre {
     position: relative;
 }
 
+#login-container h2,
 #registration-container h2,
 #partida-container h2 {
     color: #fff;
@@ -159,6 +160,7 @@ pre {
     position: relative;
 }
 
+#login-container,
 #registration-container,
 #partida-container {
     background-color: rgba(255, 255, 255, 0.1);
@@ -184,6 +186,7 @@ pre {
 }
 
 @media (max-width: 768px) {
+    #login-container,
     #registration-container,
     #partida-container {
         width: 95%;
@@ -202,7 +205,7 @@ pre {
     left: 0;
     top: 10%;
     height: 80%;
-    opacity: 0.5;
+    opacity: 1;
     z-index: 1;
     animation: fadeIn 1s ease;
     max-height: 800px;
@@ -213,8 +216,90 @@ pre {
     right: 0;
     top: 10%;
     height: 80%;
-    opacity: 0.5;
+    opacity: 1;
     z-index: 1;
     animation: fadeIn 1s ease;
     max-height: 800px;
+}
+
+#how-to-play-container {
+    background-color: #282c34; /* Un tono negro-gris opaco, puedes ajustarlo (e.g., #333333) */
+    color: #fff; /* Asegura que el texto dentro sea blanco y legible */
+    padding: 25px;
+    border-radius: 10px; /* Consistente con otros contenedores */
+    margin-top: 2rem;
+    margin-bottom: 3rem; /* Espacio adicional en la parte inferior */
+    width: 90%; /* Usa un porcentaje para que sea responsivo */
+    max-width: 800px; /* Un ancho máximo para pantallas grandes */
+    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3); /* Sombra consistente */
+    border: 2px solid rgba(255, 255, 255, 0.1); /* Borde consistente */
+    text-align: center; /* Centra el título h2 */
+    z-index: 2; /* Para asegurar que esté por encima de las imágenes de fondo si es necesario */
+    position: relative; /* Necesario para el z-index */
+    animation: fadeIn 1s ease; /* Reutiliza tu animación de entrada */
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Centra el contenido flex (instructions-content) */
+}
+
+#how-to-play-container h2 {
+    color: #fff; /* Ya heredado, pero explícito para claridad */
+    margin-bottom: 1.5rem;
+    text-shadow: 3px 3px 5px rgba(0, 0, 0, 0.3); /* Sombra consistente */
+    font-size: 2rem; /* Tamaño consistente */
+}
+
+#how-to-play-container .instructions-content {
+    display: flex;
+    flex-direction: column; /* Apila el texto y el video */
+    align-items: center; /* Centra el bloque de texto y el video */
+    width: 100%; /* Ocupa el ancho completo de #how-to-play-container */
+    gap: 20px; /* Espacio entre el bloque de texto y el video */
+}
+
+#how-to-play-container .instructions-text {
+    text-align: left; /* Alinea el texto de las instrucciones a la izquierda para mejor legibilidad */
+    max-width: 95%; /* Limita el ancho para que no ocupe todo el contenedor si es muy ancho */
+    line-height: 1.6; /* Mejora la legibilidad del párrafo */
+}
+
+#how-to-play-container .instructions-text p,
+#how-to-play-container .instructions-text ul {
+    margin-bottom: 12px; /* Espacio entre párrafos y listas */
+}
+
+#how-to-play-container .instructions-text ul {
+    padding-left: 20px; /* Indentación para los items de la lista */
+    list-style-position: inside; /* Para que los bullets queden dentro del flujo del texto */
+}
+
+#how-to-play-container .gameplay-video {
+    width: 100%;
+    max-width: 607px; /* Ancho original del video, o el que prefieras */
+    display: flex;
+    justify-content: center; /* Centra el video si es más pequeño que este contenedor */
+}
+
+#how-to-play-container .gameplay-video video {
+    display: block; /* Elimina espacio extra debajo del video */
+    max-width: 100%; /* Hace el video responsivo dentro de su contenedor */
+    height: auto; /* Mantiene la proporción del video */
+    border-radius: 8px; /* Bordes redondeados para el video */
+    border: 1px solid rgba(255, 255, 255, 0.2); /* Un borde sutil para el video */
+}
+
+/* Ajustes responsivos para la sección "Cómo Jugar" */
+@media (max-width: 768px) {
+    #how-to-play-container {
+        width: 95%;
+        padding: 20px;
+    }
+
+    #how-to-play-container h2 {
+        font-size: 1.8rem;
+    }
+
+    #how-to-play-container .instructions-text {
+        max-width: 100%; /* Permite que el texto ocupe más espacio en pantallas pequeñas */
+    }
 }
