@@ -15,11 +15,10 @@ pub fn aim_with_keyboard(
     controlled: Query<&OwnedBy, With<TurnControlled>>,
     mut turn_state: ResMut<TurnState>,
 ) {
-    if !my_turn.0 {
+    if !my_turn.0 || turn_state.current_turn_id != backend_info.my_uid {
         return;
     }
 
-    // Asegurar que el disco controlado sea nuestro
     for owned_by in &controlled {
         if owned_by.0 != backend_info.my_uid {
             return;
@@ -50,7 +49,7 @@ pub fn charge_shot_power(
     controlled: Query<&OwnedBy, With<TurnControlled>>,
     mut turn_state: ResMut<TurnState>,
 ) {
-    if !my_turn.0 {
+    if !my_turn.0 || turn_state.current_turn_id != backend_info.my_uid {
         return;
     }
 
@@ -78,7 +77,11 @@ pub fn fire_selected_disk(
     turn_q: Query<(), With<PendingDoubleTurn>>,
     mut colliders: Query<&mut Restitution>,
 ) {
-    if !keys.just_released(KeyCode::Space) || turn_state.in_motion || !my_turn.0 {
+    if !keys.just_released(KeyCode::Space)
+        || turn_state.in_motion
+        || !my_turn.0
+        || turn_state.current_turn_id != backend_info.my_uid
+    {
         return;
     }
 

@@ -73,7 +73,7 @@ pub fn spawn_formation_for(
         angular_damping: 2.0,
     };
 
-    let player_id = if is_left { 1 } else { 2 };
+    let player_id = data.id_usuario;
 
     for (idx, pos) in get_formation_positions(formation, is_left).into_iter().enumerate() {
         commands.spawn((

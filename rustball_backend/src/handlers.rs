@@ -69,7 +69,11 @@ pub async fn post_jugada(
         .unwrap_or(Some(1))
         .unwrap_or(1);
 
-    let nuevo_turno_logico = if turno_logico_actual == 1 { 2 } else { 1 };
+    let nuevo_turno_logico = if payload.id_usuario == partida.id_jugador1 {
+        partida.id_jugador2
+    } else {
+        partida.id_jugador1
+    };
     println!("🎯 Turno actual lógico: {}, próximo: {}", turno_logico_actual, nuevo_turno_logico);
 
     // 5. Actualizar turno_actual con el valor lógico

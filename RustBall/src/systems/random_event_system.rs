@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use crate::resources::{EventControl, TurnState};
 use crate::events::RandomEvent;
 use crate::zone::{spawn_slippery_zone, spawn_slow_zone, spawn_bounce_pad};
-use rand::{thread_rng, Rng}; // ✅ Usamos rand aquí
+use rand::{thread_rng, Rng};
 
 pub const EVENT_INTERVAL_TURNS: usize = 3;
 
@@ -16,7 +16,7 @@ pub fn trigger_random_event_system(
     }
 
     control.turns_since_last = 0;
-    let current_turn: u8 = turn_state.current_turn as u8;
+    let current_turn: u8 = turn_state.current_turn_id as u8; // ← 👈 acá estaba el error
     let mut rng = thread_rng();
 
     // Posición aleatoria en el campo de juego

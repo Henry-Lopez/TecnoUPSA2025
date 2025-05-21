@@ -20,8 +20,8 @@ use crate::{
 #[derive(Resource, Clone)]
 pub struct PollState {
     timer: Timer,                        // ⏲️ Temporizador de 3s
-    last_turn_number: Arc<Mutex<i32>>,   // 🔁 Número del último turno observado
-    notify: Arc<AtomicBool>,             // 🚩 Flag “hay nuevo turno” detectado
+    last_turn_number: Arc<Mutex<i32>>,   // 🔁 Último turno recibido
+    notify: Arc<AtomicBool>,             // 🚩 Flag para notificar nuevo turno
 }
 
 impl Default for PollState {
@@ -34,7 +34,7 @@ impl Default for PollState {
     }
 }
 
-/* ────────────── Sistema principal ────────────── */
+/* ────────────── Sistema de polling ────────────── */
 pub fn poll_turn_tick_system(
     mut state: ResMut<PollState>,
     time: Res<Time>,
@@ -85,7 +85,7 @@ pub fn poll_turn_tick_system(
     });
 }
 
-/* ────────────── Sistema para aplicar snapshot al recibir TurnFinishedEvent ────────────── */
+/* ────────────── Aplicar snapshot al recibir TurnFinishedEvent ────────────── */
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
 pub fn handle_turn_finished_event(
     mut reader: EventReader<TurnFinishedEvent>,
@@ -95,7 +95,7 @@ pub fn handle_turn_finished_event(
     {
         use crate::snapshot::{set_game_state, SnapshotFromServer};
 
-        if reader.iter().next().is_some() {
+        if reader.read().next().is_some() {
             if let Some(b) = backend {
                 let pid = b.partida_id;
                 let uid = b.my_uid;
@@ -104,7 +104,7 @@ pub fn handle_turn_finished_event(
                     if let Ok(resp) = Request::get(&format!("/api/snapshot/{}", pid)).send().await {
                         if let Ok(snapshot) = resp.json::<SnapshotFromServer>().await {
                             let json = serde_json::to_string(&snapshot).unwrap();
-                            set_game_state(json, uid); // se guarda para aplicar con snapshot_apply_system
+                            set_game_state(json, uid);
                         }
                     }
                 });

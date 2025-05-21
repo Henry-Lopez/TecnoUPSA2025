@@ -13,10 +13,10 @@ use crate::{
 /* ───────────── modelos JSON ───────────── */
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PiezaPos {
-    pub id: u32,             // 🎨 ID visual (1 = izq, 2 = der, 0 = otro)
+    pub id: u32,
     pub x: f32,
     pub y: f32,
-    pub id_usuario_real: i32, // 👤 ID real del jugador
+    pub id_usuario_real: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,11 +46,9 @@ pub struct SnapshotFromServer {
     pub proximo_turno: i32,
 }
 
-/* ───── Recurso “¿es mi turno?” ───── */
 #[derive(Resource, Default)]
 pub struct MyTurn(pub bool);
 
-/* ───── Recurso para saber a quién le toca el turno ───── */
 #[derive(Resource, Default)]
 pub struct CurrentPlayerId(pub i32);
 
@@ -60,7 +58,6 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-/* ───── función pública que llama JS ───── */
 #[wasm_bindgen]
 pub fn set_game_state(json: String, my_uid: i32) {
     let snap: SnapshotFromServer =
@@ -68,7 +65,6 @@ pub fn set_game_state(json: String, my_uid: i32) {
     APP_STATE.with(|c| *c.borrow_mut() = Some((snap, my_uid)));
 }
 
-/* ───── sistema que aplica el snapshot cuando exista ───── */
 pub fn snapshot_apply_system(
     mut commands: Commands,
     mut scores: ResMut<Scores>,
@@ -80,7 +76,7 @@ pub fn snapshot_apply_system(
     mut next_state: ResMut<NextState<AppState>>,
     asset_server: Res<AssetServer>,
     backend_info: Res<BackendInfo>,
-    my_turn: Option<ResMut<MyTurn>>, // <- Acepta opcional para fallback
+    my_turn: Option<ResMut<MyTurn>>,
 ) {
     let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else {
         return;
@@ -136,7 +132,6 @@ pub fn snapshot_apply_system(
     ts.selected_entity = None;
     ts.skip_turn_switch = false;
 
-    // ✅ Determinar si es mi turno (seguro)
     let is_my_turn = snap.proximo_turno == my_uid;
     println!(
         "🌀 Soy UID {}, turno_actual = {} → ¿Me toca? {}",
@@ -149,6 +144,9 @@ pub fn snapshot_apply_system(
             commands.insert_resource(MyTurn(is_my_turn));
         }
     }
+
+    // 👇 Esta es la línea que faltaba
+    ts.current_turn_id = snap.proximo_turno;
 
     current_player_id.0 = snap.proximo_turno;
 

@@ -39,8 +39,8 @@ pub fn send_turn_to_backend(
 
         let payload = TurnPayload {
             id_partida: backend.partida_id,
-            numero_turno: turn_state.current_turn as i32,
-            id_usuario: backend.my_uid, // ✅ ahora correcto
+            numero_turno: turn_state.current_turn_id, // ✅ corregido
+            id_usuario: backend.my_uid,
             jugada: json!({ "piezas": piezas }),
         };
 

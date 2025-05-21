@@ -3,9 +3,10 @@ use crate::events::RandomEvent;
 use crate::snapshot::SnapshotFromServer;
 
 /* ─────────────── Turno actual del juego ─────────────── */
-#[derive(Resource)]
+// resources.rs
+#[derive(Resource)] // ⬅️ esto es lo que falta
 pub struct TurnState {
-    pub current_turn: usize,
+    pub current_turn_id: i32,  // 👈 nuevo nombre correcto
     pub in_motion: bool,
     pub selected_entity: Option<Entity>,
     pub aim_direction: Vec2,
@@ -16,7 +17,7 @@ pub struct TurnState {
 impl Default for TurnState {
     fn default() -> Self {
         Self {
-            current_turn: 1,
+            current_turn_id: 0,
             in_motion: false,
             selected_entity: None,
             aim_direction: Vec2::ZERO,
@@ -25,6 +26,7 @@ impl Default for TurnState {
         }
     }
 }
+
 
 /* ─────────────── Puntos de cada lado ─────────────── */
 #[derive(Resource, Default)]

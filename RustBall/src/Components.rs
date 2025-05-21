@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 
 /// Disco de jugador
+// components.rs
 #[derive(Component)]
 pub struct PlayerDisk {
- pub player_id: usize,         // 1 o 2 para visualización (izquierda/derecha)
- pub id_usuario_real: i32,     // 👤 ID real del jugador
+ pub player_id: i32,
+ pub id_usuario_real: i32,
 }
+
 
 /// Pelota
 #[derive(Component)]

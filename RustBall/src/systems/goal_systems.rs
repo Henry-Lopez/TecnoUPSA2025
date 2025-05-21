@@ -3,8 +3,7 @@ use bevy_rapier2d::prelude::*;
 use crate::components::*;
 use crate::events::*;
 use crate::resources::*;
-use crate::setup::camera::GameCamera; // ✅ Importa la etiqueta de cámara
-
+use crate::setup::camera::GameCamera;
 
 #[derive(Component)]
 pub struct GoalBanner;
@@ -45,6 +44,7 @@ pub fn handle_goal(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut next_state: ResMut<NextState<AppState>>,
+    backend_info: Res<BackendInfo>,
 ) {
     for event in goal_events.read() {
         // 🎯 Actualizar marcador
@@ -68,7 +68,13 @@ pub fn handle_goal(
         turn_state.selected_entity = None;
         turn_state.aim_direction = Vec2::ZERO;
         turn_state.power = 0.0;
-        turn_state.current_turn = turn_state.current_turn % 2 + 1;
+
+        // 🔁 Cambiar al otro jugador (basado en ID reales)
+        turn_state.current_turn_id = if turn_state.current_turn_id == backend_info.id_left {
+            backend_info.id_right
+        } else {
+            backend_info.id_left
+        };
 
         // ✨ Mostrar banner de gol
         commands.spawn((
@@ -105,7 +111,7 @@ pub fn handle_goal(
 
 pub fn setup_goal_timer(mut commands: Commands) {
     commands.insert_resource(GoalBannerTimer {
-        timer: Timer::from_seconds(4.0, TimerMode::Once), // ⏱️ reducido para mejor fluidez
+        timer: Timer::from_seconds(4.0, TimerMode::Once),
     });
 }
 
@@ -145,7 +151,6 @@ pub fn wait_and_change_state(
     }
 }
 
-// ✅ Nuevo sistema: eliminar todas las entidades físicas tras GameOver
 pub fn despawn_game_entities(
     mut commands: Commands,
     players: Query<Entity, With<PlayerDisk>>,

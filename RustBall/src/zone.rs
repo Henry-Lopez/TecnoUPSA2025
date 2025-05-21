@@ -100,7 +100,7 @@ pub fn update_zone_lifetime(
     }
 
     let mut despawned_any = false;
-    let current = turn_state.current_turn as u8;
+    let current = turn_state.current_turn_id as u8; // ✅ corregido
 
     for (entity, mut lifetime) in &mut zones {
         if current != lifetime.last_turn_owner {

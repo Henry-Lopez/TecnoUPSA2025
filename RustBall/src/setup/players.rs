@@ -22,7 +22,7 @@ pub fn spawn_players_from_selection(
         commands.entity(entity).despawn_recursive();
     }
 
-    // 🔵 Jugadores del jugador 1
+    // 🔵 Jugadores del jugador 1 (izquierda)
     if let Some(f1) = formations.player1 {
         let positions = get_formation_positions(f1, true);
         for pos in positions {
@@ -49,15 +49,15 @@ pub fn spawn_players_from_selection(
                 LockedAxes::ROTATION_LOCKED,
                 Sleeping::disabled(),
                 PlayerDisk {
-                    player_id: 1,
-                    id_usuario_real: backend_info.id_left,
+                    player_id: backend_info.id_left,        // ← cambiado a ID real
+                    id_usuario_real: backend_info.id_left,  // 👤 ID real
                 },
-                OwnedBy(backend_info.id_left), // 👈 Aquí se especifica el dueño
+                OwnedBy(backend_info.id_left),
             ));
         }
     }
 
-    // 🔴 Jugadores del jugador 2
+    // 🔴 Jugadores del jugador 2 (derecha)
     if let Some(f2) = formations.player2 {
         let positions = get_formation_positions(f2, false);
         for pos in positions {
@@ -84,10 +84,10 @@ pub fn spawn_players_from_selection(
                 LockedAxes::ROTATION_LOCKED,
                 Sleeping::disabled(),
                 PlayerDisk {
-                    player_id: 2,
+                    player_id: backend_info.id_right,         // ← cambiado a ID real
                     id_usuario_real: backend_info.id_right,
                 },
-                OwnedBy(backend_info.id_right), // 👈 Aquí también
+                OwnedBy(backend_info.id_right),
             ));
         }
     }
