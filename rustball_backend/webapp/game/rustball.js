@@ -269,7 +269,7 @@ export function receive_ws_message(msg) {
 }
 
 function __wbg_adapter_34(arg0, arg1, arg2) {
-    wasm.closure6637_externref_shim(arg0, arg1, arg2);
+    wasm.closure6636_externref_shim(arg0, arg1, arg2);
 }
 
 function __wbg_adapter_49(arg0, arg1, arg2) {
@@ -277,15 +277,15 @@ function __wbg_adapter_49(arg0, arg1, arg2) {
 }
 
 function __wbg_adapter_52(arg0, arg1) {
-    wasm._dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h97066e15debeb440(arg0, arg1);
+    wasm._dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h4060c2682754b6dc(arg0, arg1);
 }
 
 function __wbg_adapter_55(arg0, arg1) {
-    wasm._dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h4c8f03f6dafadc8f(arg0, arg1);
+    wasm._dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__he926152bb781e551(arg0, arg1);
 }
 
 function __wbg_adapter_58(arg0, arg1, arg2) {
-    wasm.closure47211_externref_shim(arg0, arg1, arg2);
+    wasm.closure47215_externref_shim(arg0, arg1, arg2);
 }
 
 async function __wbg_load(module, imports) {
@@ -1834,44 +1834,44 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper32168 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper32167 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 25200, __wbg_adapter_52);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper61770 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 46960, __wbg_adapter_55);
+    imports.wbg.__wbindgen_closure_wrapper61767 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 46964, __wbg_adapter_55);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper62344 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 47212, __wbg_adapter_58);
+    imports.wbg.__wbindgen_closure_wrapper62343 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 47216, __wbg_adapter_58);
         return ret;
     };
     imports.wbg.__wbindgen_closure_wrapper9479 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6638, __wbg_adapter_34);
+        const ret = makeMutClosure(arg0, arg1, 6637, __wbg_adapter_34);
         return ret;
     };
     imports.wbg.__wbindgen_closure_wrapper9481 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6638, __wbg_adapter_34);
+        const ret = makeMutClosure(arg0, arg1, 6637, __wbg_adapter_34);
         return ret;
     };
     imports.wbg.__wbindgen_closure_wrapper9483 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6638, __wbg_adapter_34);
+        const ret = makeMutClosure(arg0, arg1, 6637, __wbg_adapter_34);
         return ret;
     };
     imports.wbg.__wbindgen_closure_wrapper9485 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6638, __wbg_adapter_34);
+        const ret = makeMutClosure(arg0, arg1, 6637, __wbg_adapter_34);
         return ret;
     };
     imports.wbg.__wbindgen_closure_wrapper9487 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6638, __wbg_adapter_34);
+        const ret = makeMutClosure(arg0, arg1, 6637, __wbg_adapter_34);
         return ret;
     };
     imports.wbg.__wbindgen_closure_wrapper9489 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6638, __wbg_adapter_34);
+        const ret = makeMutClosure(arg0, arg1, 6637, __wbg_adapter_34);
         return ret;
     };
     imports.wbg.__wbindgen_closure_wrapper9491 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6638, __wbg_adapter_34);
+        const ret = makeMutClosure(arg0, arg1, 6637, __wbg_adapter_34);
         return ret;
     };
     imports.wbg.__wbindgen_closure_wrapper9968 = function(arg0, arg1, arg2) {
