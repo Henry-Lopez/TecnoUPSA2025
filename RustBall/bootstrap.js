@@ -46,7 +46,7 @@ function initWebSocket(partidaId, userId) {
         return; // evita doble conexión
     }
 
-    socket = new WebSocket(`ws://127.0.0.1:8000/ws/${partidaId}/${userId}`);
+    socket = new WebSocket(`ws://127.0.0.1:10000/ws/${partidaId}/${userId}`);
 
     socket.onopen = () => {
         console.log("🟢 WebSocket conectado");

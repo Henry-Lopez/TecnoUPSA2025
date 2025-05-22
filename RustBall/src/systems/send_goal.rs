@@ -57,7 +57,7 @@ pub fn send_goal_to_backend(
         {
             task::spawn(async move {
                 let _ = Client::new()
-                    .post("http://127.0.0.1:3000/api/gol")
+                    .post("http://127.0.0.1:10000/api/gol")
                     .json(&payload)
                     .send()
                     .await;

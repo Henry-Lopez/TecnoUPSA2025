@@ -2,6 +2,9 @@
 //! --------------------------------------------------------------
 //! Control de turnos, selección de fichas e input de teclado
 //! --------------------------------------------------------------
+/// etiqueta-set para todo lo que ocurre AL FINAL de un turno
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub struct CheckTurnEndSet;
 
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;

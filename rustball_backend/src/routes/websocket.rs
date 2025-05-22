@@ -1,43 +1,67 @@
+//! routes/websocket.rs
+//! -----------------------------------------------------------------
+//!   GET /ws/{partida}/{uid}  →  WebSocket broadcast
+//!
+//!   • Cada cliente envía texto        (Message::Text)
+//!   • El servidor lo re-difunde a todos los suscritos
+//! -----------------------------------------------------------------
+
 use axum::{
-    extract::ws::{WebSocketUpgrade, WebSocket, Message},
-    extract::{Extension, Path},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Extension, Path,
+    },
     response::IntoResponse,
 };
-use tokio::sync::broadcast;
-use axum::debug_handler;
-use futures_util::stream::StreamExt;
-use futures_util::sink::SinkExt;
+use futures_util::{SinkExt, StreamExt};
+use tokio::sync::broadcast::{error::RecvError, Sender};
+use tracing::{debug, info, warn};
 
-#[debug_handler]
+/// Handler de la ruta `/ws/:partida/:uid`
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
-    Path((partida_id, user_id)): Path<(u32, u32)>,
-    Extension(tx): Extension<broadcast::Sender<String>>,
+    Path((partida, uid)): Path<(i32, i32)>,
+    Extension(tx): Extension<Sender<String>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, partida_id, user_id, tx))
+    info!("🌐 WS-OPEN  partida={partida}  uid={uid}");
+    // devolvemos directamente el upgrade
+    ws.on_upgrade(move |socket| client_session(socket, partida, uid, tx))
 }
 
-async fn handle_socket(
-    socket: WebSocket,
-    partida_id: u32,
-    user_id: u32,
-    tx: broadcast::Sender<String>,
-) {
-    let (mut sender, mut receiver_ws) = socket.split();
+/// Bucle principal de un cliente WebSocket
+async fn client_session(socket: WebSocket, partida: i32, uid: i32, tx: Sender<String>) {
+    let (mut outbound, mut inbound) = socket.split();
     let mut rx = tx.subscribe();
 
-    // Enviar mensajes del canal al cliente
-    tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            let _ = sender.send(Message::Text(msg)).await;
+    /* ─── Task 1 : broadcast ➜ cliente ─────────────────────────── */
+    let forward = tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(text) => {
+                    if outbound.send(Message::Text(text)).await.is_err() {
+                        break; // cliente cerró
+                    }
+                }
+                Err(RecvError::Lagged(n)) => {
+                    warn!("⚠️  WS lag ({n} mensajes) uid={uid}");
+                }
+                Err(RecvError::Closed) => break,
+            }
         }
     });
 
-    // Escuchar mensajes del cliente
-    while let Some(Ok(msg)) = receiver_ws.next().await {
-        if let Message::Text(text) = msg {
-            println!("📨 {user_id} en partida {partida_id}: {text}");
-            let _ = tx.send(text);
+    /* ─── Task 2 : cliente ➜ broadcast ─────────────────────────── */
+    while let Some(Ok(msg)) = inbound.next().await {
+        match msg {
+            Message::Text(txt) => {
+                debug!("📨 WS  part={partida} uid={uid} → {txt}");
+                let _ = tx.send(txt);           // ignorar error sin oyentes
+            }
+            Message::Close(_) => break,
+            _ => {} // Ping/Pong/Bin… ignorados
         }
     }
+
+    forward.abort();                            // cerramos tarea secundaria
+    info!("🔌 WS-CLOSE partida={partida} uid={uid}");
 }

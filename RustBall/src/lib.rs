@@ -1,8 +1,14 @@
-// 🔧 Módulos
+//! src/lib.rs
+//  -------------------------------------------------------------------
+//  Punto de arranque de la aplicación: carga módulos, crea la App y
+//  registra todos los sistemas / recursos.
+//  -------------------------------------------------------------------
+
+// ──────────────── MÓDULOS DEL JUEGO ────────────────────────────────
 pub mod components;
 pub mod resources;
 pub mod events;
-pub mod systems;          //  ← módulo-contenedor
+pub mod systems;          // contenedor re-export
 pub mod setup;
 pub mod formation;
 pub mod formation_selection;
@@ -11,27 +17,28 @@ mod powerup;
 pub mod zone;
 mod snapshot;
 
+// ──────────────── USE GENÉRICOS ────────────────────────────────────
 use bevy::asset::AssetMetaCheck;
-use powerup::*;
-
 use once_cell::sync::OnceCell;
+use powerup::*;
 use std::sync::Mutex;
+
 use crate::resources::WsInbox;
 
-// 🔐 Caja estática para uso desde JS → Bevy (solo en WASM)
+// 🔐 Caja estática para pasar mensajes JS → Bevy (sólo WASM)
 #[cfg(target_arch = "wasm32")]
 static WS_INBOX: OnceCell<Mutex<WsInbox>> = OnceCell::new();
 
-// 🔁 Entradas para WebAssembly y escritorio
+// WASM bootstrap
 #[cfg(target_arch = "wasm32")]
-
 use wasm_bindgen::prelude::wasm_bindgen;
 
+// ─────────────── USE ESPECÍFICOS DEL JUEGO ─────────────────────────
 use crate::components::{PlayerDisk, PowerUpLabel};
 use crate::events::{FormationChosenEvent, TurnFinishedEvent};
 use crate::zone::apply_zone_effects;
-use crate::snapshot::NextTurn;
 
+// ──────────────────────────── WASM entry ───────────────────────────
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -43,24 +50,22 @@ pub fn main() {
     main_internal();
 }
 
-// 📤 JS → Rust: permite enviar string por WebSocket desde JS
+// Función JS para enviar texto por WebSocket
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = sendOverWS)]
     fn send_over_ws(msg: &str);
 }
 
-// 📥 Mensajes que llegan desde JS WebSocket → se guardan en `WsInbox`
+// Entrada JS → cola Bevy
 #[wasm_bindgen]
 pub fn receive_ws_message(msg: String) {
-    web_sys::console::log_1(&format!("📥 Mensaje desde JS: {}", msg).into());
+    web_sys::console::log_1(&format!("📥 Mensaje desde JS: {msg}").into());
 
     #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(lock) = WS_INBOX.get() {
-            if let Ok(mut inbox) = lock.lock() {
-                inbox.0.push(msg);
-            }
+    if let Some(lock) = WS_INBOX.get() {
+        if let Ok(mut inbox) = lock.lock() {
+            inbox.0.push(msg);
         }
     }
 }
@@ -263,53 +268,84 @@ pub fn main_internal() {
         }
     }*/
 
-    // ───── INICIA LA APP ──────────────────────────────────────────────
+    // --------------------------------------------------------------------
+    //  IMPORTA LOS SystemSet QUE ACABAS DE CREAR
+    // --------------------------------------------------------------------
+    use crate::snapshot::ApplySnapshotSet;   // systems que aplican snapshot
+    use crate::systems::CheckTurnEndSet;     // systems que cierran un turno
+
+    // --------------------------------------------------------------------
+    //  CREA Y CONFIGURA LA APLICACIÓN
+    // --------------------------------------------------------------------
     let mut app = App::new();
 
+    // ───────── Recursos básicos ─────────────────────────────────────────
     app.insert_resource(AssetMetaCheck::Never)
         .insert_resource(GlobalVolume::new(1.0))
         .insert_resource(ClearColor(Color::BLACK))
         .add_state::<AppState>()
         .insert_resource(TurnState::default())
         .insert_resource(Scores::default())
-        .insert_resource(PlayerFormations {
-            player1: None,
-            player2: None,
-        })
+        .insert_resource(PlayerFormations { player1: None, player2: None })
         .insert_resource(PowerUpControl::default())
         .insert_resource(EventControl::default())
         .insert_resource(snapshot::MyTurn::default())
-        .insert_resource(NextTurn::default())          // ← limpio y corto
         .insert_resource(CurrentPlayerId::default())
         .insert_resource(poll_turn::PollState::default())
         .insert_resource(UltimoTurnoAplicado::default());
 
-    // ───── SECCIÓN ESPECÍFICA DE WASM ─────────────────────────────────
+    // ───────── Sección ESPECÍFICA WASM ──────────────────────────────────
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::snapshot::{poll_snapshot_when_forming, LatestSnapshot, SnapshotPollTimer};
+        use std::sync::Mutex;
 
-        // Caja estática WS_INBOX (ya inicializada)
+        use crate::{
+            resources::{LatestSnapshot, SnapshotPollTimer, WsInbox},
+            snapshot::{
+                poll_snapshot_when_forming,        // ⏱  polling mientras falta la 2ª formación
+                fetch_snapshot_on_ws_message,      // 📡 reacciona a “start” / “turno_finalizado”
+            },
+        };
+
+        // Inbox global para que JS empuje aquí los mensajes del WebSocket
         WS_INBOX.set(Mutex::new(WsInbox::default())).ok();
-        app.insert_resource(WsInbox::default())
+
+        app
+            /* ───── Recursos compartidos ───────────────────────────── */
+            .insert_resource(WsInbox::default())
             .insert_resource(LatestSnapshot::default())
             .insert_resource(SnapshotPollTimer::default())
-            // polling para snapshot mientras eliges formación
-            .add_systems(Update, poll_snapshot_when_forming.run_if(
-                in_state(AppState::FormationSelection)
-            ))
-            .add_systems(OnExit(AppState::FormationSelection), |mut commands: Commands| {
-                commands.remove_resource::<SnapshotPollTimer>();
-            })
-            // ⬇️ WebSocket activo en los 3 estados clave
-            .add_systems(Update, process_ws_messages.run_if(
-                in_state(AppState::FormationSelection)
-                    .or_else(in_state(AppState::FormationChange))
-                    .or_else(in_state(AppState::InGame))
-            ));
+
+            /* ───── 1) Polling de snapshot SOLO en FormationSelection ─ */
+            .add_systems(
+                Update,
+                poll_snapshot_when_forming
+                    .run_if(in_state(AppState::FormationSelection)),
+            )
+            // Al salir de ese estado ya no necesitamos más el timer
+            .add_systems(
+                OnExit(AppState::FormationSelection),
+                |mut c: Commands| {
+                    c.remove_resource::<SnapshotPollTimer>();
+                },
+            )
+
+            /* ───── 2) WebSocket activo en los tres estados clave ───── */
+            .add_systems(
+                Update,
+                (
+                    process_ws_messages,         // lee y coloca en WsInbox
+                    fetch_snapshot_on_ws_message // actúa cuando llega “start” o “turno_finalizado”
+                )
+                    .run_if(
+                        in_state(AppState::FormationSelection)
+                            .or_else(in_state(AppState::FormationChange))
+                            .or_else(in_state(AppState::InGame)),
+                    ),
+            );
     }
 
-    // ───── PLUGINS Y CONFIG DE RAPIER ────────────────────────────────
+    // ───────── Plugins (Bevy + Rapier) ──────────────────────────────────
     app.add_plugins((
         DefaultPlugins.set(AssetPlugin {
             watch_for_changes_override: Some(false),
@@ -317,132 +353,166 @@ pub fn main_internal() {
         }),
         RapierPhysicsPlugin::<NoUserData>::default(),
     ))
-        .insert_resource(RapierConfiguration {
-            gravity: Vec2::ZERO,
-            ..default()
-        });
+        .insert_resource(RapierConfiguration { gravity: Vec2::ZERO, ..default() });
 
-    // ───── EVENTOS GLOBALMENTE ───────────────────────────────────────
+    // ───────── Eventos globales ─────────────────────────────────────────
     app.add_event::<GoalEvent>()
         .add_event::<FormationChosenEvent>()
         .add_event::<TurnFinishedEvent>();
 
-    // ───── STARTUP SYSTEMS ───────────────────────────────────────────
+    // ───────── STARTUP ──────────────────────────────────────────────────
     app.add_systems(Startup, insert_backend_info)
-        .add_systems(Startup, (
-            setup_fonts,
-            load_team_selection_music,
-            load_background_image,
-            load_game_over_assets,
-        ));
+        .add_systems(
+            Startup,
+            (
+                setup_fonts,
+                load_team_selection_music,
+                load_background_image,
+                load_game_over_assets,
+            ),
+        );
 
-    // ───── STATE: FormationSelection ────────────────────────────────
-    app.add_systems(OnEnter(AppState::FormationSelection), (
-        show_formation_ui_system,
-        spawn_selection_background,
-        play_selection_music,
-    ))
-        .add_systems(OnExit(AppState::FormationSelection), (
-            despawn_selection_background,
-            stop_selection_music,
-        ))
-        .add_systems(Update, (
-            handle_formation_click,
-            animate_selection_buttons,
-            send_formacion_to_backend,
-        ).run_if(
-            in_state(AppState::FormationSelection)
-                .or_else(in_state(AppState::FormationChange))
-        ));
+    // ───────── STATE: FormationSelection ────────────────────────────────
+    app.add_systems(
+        OnEnter(AppState::FormationSelection),
+        (show_formation_ui_system, spawn_selection_background, play_selection_music),
+    )
+        .add_systems(
+            OnExit(AppState::FormationSelection),
+            (despawn_selection_background, stop_selection_music),
+        )
+        .add_systems(
+            Update,
+            (
+                handle_formation_click,
+                animate_selection_buttons,
+                send_formacion_to_backend,
+            )
+                .run_if(
+                    in_state(AppState::FormationSelection)
+                        .or_else(in_state(AppState::FormationChange)),
+                ),
+        );
 
-    // ───── STATE: FormationChange ───────────────────────────────────
-    app.add_systems(OnEnter(AppState::FormationChange), (
-        show_formation_ui_system,
-        reset_for_formation,
-        cleanup_power_bar,
-    ));
+    // ───────── STATE: FormationChange ───────────────────────────────────
+    app.add_systems(
+        OnEnter(AppState::FormationChange),
+        (show_formation_ui_system, reset_for_formation, cleanup_power_bar),
+    );
 
-    // ───── STATE: InGame (enter / exit) ─────────────────────────────
-    app.add_systems(OnEnter(AppState::InGame), (
-        cleanup_formation_ui,
-        cleanup_cameras_on_enter,
-        play_ingame_music,
-        setup,
-        attach_powerup_label_once,
-    ))
+    // ───────── STATE: InGame – enter / exit ─────────────────────────────
+    app.add_systems(
+        OnEnter(AppState::InGame),
+        (
+            cleanup_formation_ui,
+            cleanup_cameras_on_enter,
+            play_ingame_music,
+            setup,
+            attach_powerup_label_once,
+        ),
+    )
         .add_systems(OnExit(AppState::InGame), stop_ingame_music);
 
-    // ───── SYSTEMS: snapshot + polling + turno ──────────────────────
-    app.add_systems(Update, snapshot::snapshot_apply_system.run_if(
-        in_state(AppState::FormationSelection)
-            .or_else(in_state(AppState::FormationChange))
-            .or_else(in_state(AppState::InGame))
-    ))
-        .add_systems(Update, poll_turn::poll_turn_tick_system.run_if(
-            in_state(AppState::InGame)
-        ))
-        .add_systems(Update, (
-            auto_select_first_disk,
-            cycle_disk_selection,
-            aim_with_keyboard,
-            charge_shot_power,
-            debug_powerup_system,
-            send_goal_to_backend,
-        ).run_if(|t: Res<snapshot::MyTurn>| t.0)
-            .run_if(in_state(AppState::InGame)))
-        .add_systems(Update, (
-            fire_selected_disk,
-            apply_zone_effects,
-            check_turn_end,
-            send_turn_to_backend,
-            detect_goal,
-            handle_goal,
-        ).run_if(in_state(AppState::InGame)));
+    // ───────── SISTEMAS PRINCIPALES (snapshot y turno) ──────────────────
+    app.add_systems(
+        Update,
+        snapshot::snapshot_apply_system
+            .run_if(
+                in_state(AppState::FormationSelection)
+                    .or_else(in_state(AppState::FormationChange))
+                    .or_else(in_state(AppState::InGame)),
+            )
+            .in_set(ApplySnapshotSet),                    // ← NUEVO SystemSet
+    )
+        .add_systems(
+            Update,
+            poll_turn::poll_turn_tick_system.run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                auto_select_first_disk,
+                cycle_disk_selection,
+                aim_with_keyboard,
+                charge_shot_power,
+                debug_powerup_system,
+                send_goal_to_backend,
+            )
+                .run_if(|t: Res<snapshot::MyTurn>| t.0)
+                .run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                fire_selected_disk,
+                apply_zone_effects,
+                check_turn_end.in_set(CheckTurnEndSet),       // ← NUEVO SystemSet
+                send_turn_to_backend.after(CheckTurnEndSet),
+                detect_goal,
+                handle_goal,
+            )
+                .run_if(in_state(AppState::InGame)),
+        );
 
-    // ───── SYSTEMS: HUD / power-ups etc. ────────────────────────────
-    app.add_systems(Update, (
-        update_turn_text,
-        update_score_text,
-        animate_selected_disk,
-        spawn_power_up_if_needed,
-        detect_powerup_collision,
-    ).run_if(in_state(AppState::InGame)))
-        .add_systems(Update, (
-            trigger_random_event_system,
-            update_zone_lifetime,
-            update_active_effect_text,
-            hide_effect_text_if_none,
-        ).run_if(in_state(AppState::InGame)))
-        .add_systems(PostUpdate, (
-            update_powerup_labels,
-            remove_powerup_label,
-            draw_aim_direction_gizmo,
-            update_power_bar,
-        ).run_if(in_state(AppState::InGame)));
+    // ───────── HUD / UI / Visual ────────────────────────────────────────
+    app.add_systems(
+        PostUpdate,
+        (
+            update_turn_text,
+            update_score_text,
+            animate_selected_disk,
+            spawn_power_up_if_needed,
+            detect_powerup_collision,
+        )
+            .after(ApplySnapshotSet)
+            .run_if(in_state(AppState::InGame)),
+    )
+        .add_systems(
+            Update,
+            (
+                trigger_random_event_system,
+                update_zone_lifetime,
+                update_active_effect_text,
+                hide_effect_text_if_none,
+            )
+                .run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            PostUpdate,
+            (
+                update_powerup_labels,
+                remove_powerup_label,
+                draw_aim_direction_gizmo,
+                update_power_bar,
+            )
+                .run_if(in_state(AppState::InGame)),
+        );
 
-    // ───── STATE: GoalScored ────────────────────────────────────────
-    app.add_systems(OnEnter(AppState::GoalScored), (
-        setup_goal_timer,
-        play_goal_sound,
-    ))
-        .add_systems(Update, (
-            goal_banner_fadeout,
-            wait_and_change_state,
-        ).run_if(in_state(AppState::GoalScored)));
+    // ───────── STATE: GoalScored ────────────────────────────────────────
+    app.add_systems(
+        OnEnter(AppState::GoalScored),
+        (setup_goal_timer, play_goal_sound),
+    )
+        .add_systems(
+            Update,
+            (goal_banner_fadeout, wait_and_change_state).run_if(in_state(AppState::GoalScored)),
+        );
 
-    // ───── STATE: GameOver ──────────────────────────────────────────
-    app.add_systems(OnEnter(AppState::GameOver), (
-        despawn_game_entities,
-        spawn_game_over_background,
-        play_game_over_music,
-        show_game_over_screen,
-    ))
-        .add_systems(OnExit(AppState::GameOver), (
-            cleanup_game_over_background,
-            stop_game_over_music,
-            cleanup_game_over_ui,
-        ));
+    // ───────── STATE: GameOver ──────────────────────────────────────────
+    app.add_systems(
+        OnEnter(AppState::GameOver),
+        (
+            despawn_game_entities,
+            spawn_game_over_background,
+            play_game_over_music,
+            show_game_over_screen,
+        ),
+    )
+        .add_systems(
+            OnExit(AppState::GameOver),
+            (cleanup_game_over_background, stop_game_over_music, cleanup_game_over_ui),
+        );
 
-    // ───── RUN ──────────────────────────────────────────────────────
+    // ───────── ARRANCA EL JUEGO ─────────────────────────────────────────
     app.run();
 }

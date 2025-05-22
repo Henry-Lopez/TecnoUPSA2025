@@ -1,5 +1,5 @@
 // js/api.js
-const BASE = "http://localhost:8000/api";
+const BASE = "http://localhost:10000/api";
 
 /* POST con body JSON */
 export async function post(path, payload) {

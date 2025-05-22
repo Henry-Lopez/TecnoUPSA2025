@@ -2,13 +2,15 @@ use bevy::prelude::*;
 use crate::events::RandomEvent;
 use crate::snapshot::SnapshotFromServer;
 
+/* ─────────── Turno / Marcador ─────────── */
+
 #[derive(Resource)]
 pub struct TurnState {
     pub current_turn_id: i32,
-    pub in_motion: bool,
+    pub in_motion:       bool,
     pub selected_entity: Option<Entity>,
-    pub aim_direction: Vec2,
-    pub power: f32,
+    pub aim_direction:   Vec2,
+    pub power:           f32,
     pub skip_turn_switch: bool,
 }
 
@@ -16,10 +18,10 @@ impl Default for TurnState {
     fn default() -> Self {
         Self {
             current_turn_id: 0,
-            in_motion: false,
+            in_motion:       false,
             selected_entity: None,
-            aim_direction: Vec2::ZERO,
-            power: 0.0,
+            aim_direction:   Vec2::ZERO,
+            power:           0.0,
             skip_turn_switch: false,
         }
     }
@@ -27,9 +29,11 @@ impl Default for TurnState {
 
 #[derive(Resource, Default)]
 pub struct Scores {
-    pub left: u32,
+    pub left:  u32,
     pub right: u32,
 }
+
+/* ─────────── Formaciones ─────────── */
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Formation {
@@ -56,6 +60,8 @@ pub struct PlayerFormations {
     pub player2: Option<Formation>,
 }
 
+/* ─────────── Estados globales ─────────── */
+
 #[derive(States, Debug, Clone, Eq, PartialEq, Hash, Default)]
 pub enum AppState {
     #[default]
@@ -69,12 +75,16 @@ pub enum AppState {
 #[derive(Resource)]
 pub struct GameOverBackground(pub Handle<Image>);
 
+/* ─────────── Eventos / Control aleatorio ─────────── */
+
 #[derive(Resource, Default)]
 pub struct EventControl {
     pub turns_since_last: usize,
-    pub current_event: Option<RandomEvent>,
-    pub event_active: bool,
+    pub current_event:    Option<RandomEvent>,
+    pub event_active:     bool,
 }
+
+/* ─────────── Info de backend ─────────── */
 
 #[derive(Resource, Debug, Clone)]
 pub struct BackendInfo {
@@ -88,18 +98,16 @@ impl BackendInfo {
     pub fn new(partida_id: i32, my_uid: i32, id_left: i32, id_right: i32) -> Self {
         Self { partida_id, my_uid, id_left, id_right }
     }
-
-    pub fn i_am_left(&self) -> bool {
-        self.my_uid == self.id_left
-    }
-
-    pub fn i_am_right(&self) -> bool {
-        self.my_uid == self.id_right
-    }
+    pub fn i_am_left (&self) -> bool { self.my_uid == self.id_left  }
+    pub fn i_am_right(&self) -> bool { self.my_uid == self.id_right }
 }
+
+/* ─────────── Snapshot más reciente (compartido) ─────────── */
 
 #[derive(Resource, Default)]
 pub struct LatestSnapshot(pub Option<SnapshotFromServer>);
+
+/* ─────────── Varios utilitarios ─────────── */
 
 #[derive(Component)]
 pub struct PowerBarBackground;
@@ -112,20 +120,25 @@ pub struct UltimoTurnoAplicado(pub i32);
 
 #[derive(Resource)]
 pub struct CurrentPlayerId(pub i32);
-
 impl Default for CurrentPlayerId {
-    fn default() -> Self {
-        CurrentPlayerId(0)
-    }
+    fn default() -> Self { Self(0) }
 }
 
 #[derive(Resource, Debug, Clone)]
 pub struct PlayerNames {
-    pub left_name: String,
+    pub left_name:  String,
     pub right_name: String,
 }
 
-/// Último número de turno aplicado + 1  (el siguiente que debo enviar)
-#[derive(Resource, Default)]
-pub struct NextTurn(pub i32);
+/* ─────────── Recursos sólo para WASM ─────────── */
 
+#[cfg(target_arch = "wasm32")]
+#[derive(Resource)]
+pub struct SnapshotPollTimer(pub Timer);
+
+#[cfg(target_arch = "wasm32")]
+impl Default for SnapshotPollTimer {
+    fn default() -> Self {
+        Self(Timer::from_seconds(1.0, TimerMode::Repeating))
+    }
+}
