@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
 use crate::components::*;
-use crate::resources::{PlayerFormations, BackendInfo};
+use crate::resources::{PlayerFormations, BackendInfo, TurnState};
 use crate::formation::get_formation_positions;
 
 pub fn spawn_players_from_selection(
@@ -10,6 +10,7 @@ pub fn spawn_players_from_selection(
     asset_server: &Res<AssetServer>,
     formations: Res<PlayerFormations>,
     backend_info: Res<BackendInfo>,
+    turn_state: Res<TurnState>,
     existing_players: Query<Entity, With<PlayerDisk>>,
 ) {
     let damping = Damping {
@@ -25,8 +26,8 @@ pub fn spawn_players_from_selection(
     // 🔵 Jugadores del jugador 1 (izquierda)
     if let Some(f1) = formations.player1 {
         let positions = get_formation_positions(f1, true);
-        for pos in positions {
-            commands.spawn((
+        for (i, pos) in positions.into_iter().enumerate() {
+            let mut entity = commands.spawn((
                 SpriteBundle {
                     texture: asset_server.load("circulobarca.png"),
                     sprite: Sprite {
@@ -49,19 +50,28 @@ pub fn spawn_players_from_selection(
                 LockedAxes::ROTATION_LOCKED,
                 Sleeping::disabled(),
                 PlayerDisk {
-                    player_id: backend_info.id_left,        // ← cambiado a ID real
-                    id_usuario_real: backend_info.id_left,  // 👤 ID real
+                    player_id: 1,
+                    id_usuario_real: backend_info.id_left,
                 },
-                OwnedBy(backend_info.id_left),
+                                            OwnedBy(backend_info.id_left),
+                Name::new(format!("disk_left_{}", i)),
             ));
+
+            // 👉 Si es el jugador activo, da control a su primera ficha
+            if backend_info.id_left == backend_info.my_uid
+                && backend_info.id_left == turn_state.current_turn_id
+                && i == 0
+            {
+                entity.insert(TurnControlled);
+            }
         }
     }
 
     // 🔴 Jugadores del jugador 2 (derecha)
     if let Some(f2) = formations.player2 {
         let positions = get_formation_positions(f2, false);
-        for pos in positions {
-            commands.spawn((
+        for (i, pos) in positions.into_iter().enumerate() {
+            let mut entity = commands.spawn((
                 SpriteBundle {
                     texture: asset_server.load("circuloparis.png"),
                     sprite: Sprite {
@@ -84,11 +94,19 @@ pub fn spawn_players_from_selection(
                 LockedAxes::ROTATION_LOCKED,
                 Sleeping::disabled(),
                 PlayerDisk {
-                    player_id: backend_info.id_right,         // ← cambiado a ID real
+                    player_id: 2,
                     id_usuario_real: backend_info.id_right,
                 },
                 OwnedBy(backend_info.id_right),
+                Name::new(format!("disk_right_{}", i)),
             ));
+
+            if backend_info.id_right == backend_info.my_uid
+                && backend_info.id_right == turn_state.current_turn_id
+                && i == 0
+            {
+                entity.insert(TurnControlled);
+            }
         }
     }
 }

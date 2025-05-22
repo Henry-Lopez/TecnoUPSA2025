@@ -7,7 +7,7 @@ use crate::formation_selection::SelectionButton;
 
 /* ───────────────────────── HUD dinámico ───────────────────────── */
 
-use crate::snapshot::CurrentPlayerId;
+
 
 use crate::resources::BackendInfo;
 
@@ -19,22 +19,25 @@ pub fn update_turn_text(
     if current_player_id.is_changed() {
         for mut text in &mut query {
             if current_player_id.0 == backend_info.my_uid {
-                text.sections[0].value = "🎯 Tu turno".to_string();
+                text.sections[0].value = "Tu turno".to_string();
             } else {
-                text.sections[0].value = "⏳ Turno del rival".to_string();
+                text.sections[0].value = format!("Turno del rival (UID {})", current_player_id.0);
             }
         }
     }
 }
-
 pub fn update_score_text(
     scores: Res<Scores>,
+    names: Res<PlayerNames>,
     mut texts: Query<&mut Text, With<ScoreText>>,
 ) {
     if scores.is_changed() {
         for mut text in &mut texts {
-            text.sections[0].value =
-                format!("P1: {}  -  P2: {}", scores.left, scores.right);
+            text.sections[0].value = format!(
+                "{}: {}  -  {}: {}",
+                names.left_name, scores.left,
+                names.right_name, scores.right
+            );
         }
     }
 }

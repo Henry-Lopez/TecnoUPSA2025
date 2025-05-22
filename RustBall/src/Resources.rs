@@ -2,11 +2,9 @@ use bevy::prelude::*;
 use crate::events::RandomEvent;
 use crate::snapshot::SnapshotFromServer;
 
-/* ─────────────── Turno actual del juego ─────────────── */
-// resources.rs
-#[derive(Resource)] // ⬅️ esto es lo que falta
+#[derive(Resource)]
 pub struct TurnState {
-    pub current_turn_id: i32,  // 👈 nuevo nombre correcto
+    pub current_turn_id: i32,
     pub in_motion: bool,
     pub selected_entity: Option<Entity>,
     pub aim_direction: Vec2,
@@ -27,15 +25,12 @@ impl Default for TurnState {
     }
 }
 
-
-/* ─────────────── Puntos de cada lado ─────────────── */
 #[derive(Resource, Default)]
 pub struct Scores {
     pub left: u32,
     pub right: u32,
 }
 
-/* ─────────────── Formaciones disponibles ─────────────── */
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Formation {
     Rombo1211,
@@ -55,14 +50,12 @@ impl Formation {
     }
 }
 
-/* ─────────────── Formaciones seleccionadas por cada jugador ─────────────── */
 #[derive(Resource, Debug)]
 pub struct PlayerFormations {
     pub player1: Option<Formation>,
     pub player2: Option<Formation>,
 }
 
-/* ─────────────── Estados del juego ─────────────── */
 #[derive(States, Debug, Clone, Eq, PartialEq, Hash, Default)]
 pub enum AppState {
     #[default]
@@ -73,11 +66,9 @@ pub enum AppState {
     GameOver,
 }
 
-/* ─────────────── Imagen del fondo final ─────────────── */
 #[derive(Resource)]
 pub struct GameOverBackground(pub Handle<Image>);
 
-/* ─────────────── Eventos aleatorios ─────────────── */
 #[derive(Resource, Default)]
 pub struct EventControl {
     pub turns_since_last: usize,
@@ -85,7 +76,6 @@ pub struct EventControl {
     pub event_active: bool,
 }
 
-/* ─────────────── Info del backend para identificar jugadores ─────────────── */
 #[derive(Resource, Debug, Clone)]
 pub struct BackendInfo {
     pub partida_id: i32,
@@ -108,7 +98,6 @@ impl BackendInfo {
     }
 }
 
-/* ─────────────── Snapshot más reciente recibido ─────────────── */
 #[derive(Resource, Default)]
 pub struct LatestSnapshot(pub Option<SnapshotFromServer>);
 
@@ -123,3 +112,20 @@ pub struct UltimoTurnoAplicado(pub i32);
 
 #[derive(Resource)]
 pub struct CurrentPlayerId(pub i32);
+
+impl Default for CurrentPlayerId {
+    fn default() -> Self {
+        CurrentPlayerId(0)
+    }
+}
+
+#[derive(Resource, Debug, Clone)]
+pub struct PlayerNames {
+    pub left_name: String,
+    pub right_name: String,
+}
+
+/// Último número de turno aplicado + 1  (el siguiente que debo enviar)
+#[derive(Resource, Default)]
+pub struct NextTurn(pub i32);
+

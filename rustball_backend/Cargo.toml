@@ -21,4 +21,5 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8.5"
 futures-util = "0.3.31"
+tracing = "0.1.41"
 

@@ -1,12 +1,14 @@
 import initWasm, * as wasm from "./rustball.js";
 
 let socket = null;
+let reconnectInterval = null;
 
 async function main() {
     const pid = localStorage.getItem("rb_pid");
     const uid = Number(localStorage.getItem("rb_uid"));
 
     if (!pid || !uid) {
+        alert("⚠️ Error: No se encontró información de partida o usuario en localStorage.");
         await initWasm();
         return;
     }
@@ -40,17 +42,21 @@ async function main() {
 }
 
 function initWebSocket(partidaId, userId) {
-    socket = new WebSocket(`ws://127.0.0.1:3000/ws/${partidaId}/${userId}`);
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+        return; // evita doble conexión
+    }
+
+    socket = new WebSocket(`ws://127.0.0.1:8000/ws/${partidaId}/${userId}`);
 
     socket.onopen = () => {
         console.log("🟢 WebSocket conectado");
+        clearInterval(reconnectInterval); // limpiar reconexión si estaba activa
     };
 
     socket.onmessage = (event) => {
         const data = event.data;
         console.log("📨 Mensaje WS:", data);
 
-        // ✅ Llamar a la función exportada desde Rust/WASM
         if (wasm && wasm.receive_ws_message) {
             wasm.receive_ws_message(data);
         }
@@ -61,7 +67,11 @@ function initWebSocket(partidaId, userId) {
     };
 
     socket.onclose = () => {
-        console.warn("🔴 WebSocket cerrado");
+        console.warn("🔴 WebSocket cerrado. Intentando reconectar...");
+        reconnectInterval = setInterval(() => {
+            console.log("🔁 Reintentando conexión WebSocket...");
+            initWebSocket(partidaId, userId);
+        }, 3000);
     };
 }
 

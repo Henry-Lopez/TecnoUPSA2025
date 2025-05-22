@@ -13,7 +13,23 @@ pub async fn post_jugada(
     Extension(tx): Extension<broadcast::Sender<String>>,
     Json(payload): Json<JugadaPayload>,
 ) -> Result<Json<&'static str>, (StatusCode, String)> {
-    // 1. Obtener el máximo número de turno actual
+    // 1. Validar que sea su turno ------------------------------------
+    let turno_actual = sqlx::query_scalar!(
+        "SELECT turno_actual FROM Partida WHERE id_partida = ?",
+        payload.id_partida
+    )
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(None);
+
+    if turno_actual != Some(payload.id_usuario) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("No es el turno del usuario {}.", payload.id_usuario),
+        ));
+    }
+
+    // 2. Calcular el número de turno lógico --------------------------
     let max_turno = sqlx::query_scalar!(
         "SELECT MAX(numero_turno) FROM Turno WHERE id_partida = ?",
         payload.id_partida
@@ -24,34 +40,54 @@ pub async fn post_jugada(
         .unwrap_or(0);
 
     let nuevo_turno = max_turno + 1;
-    println!("🔢 Turno actual más alto: {}, nuevo_turno: {}", max_turno, nuevo_turno);
+    tracing::info!("🔢 Turno más alto: {max_turno}, nuevo_turno: {nuevo_turno}");
 
-    // 2. Guardar el nuevo turno
-    let result = sqlx::query!(
-        "INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
-         VALUES (?, ?, ?, ?)",
+    // 3. Enriquecer la jugada con id_usuario_real --------------------
+    let piezas_json = payload
+        .jugada
+        .get("piezas")
+        .and_then(|v| v.as_array())
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "Formato de jugada inválido: falta 'piezas'".to_string(),
+        ))?;
+
+    let jugada_json = json!({
+        "piezas": piezas_json.iter().map(|p| {
+            json!({
+                "id_usuario_real": payload.id_usuario,
+                "x": p["x"],
+                "y": p["y"]
+            })
+        }).collect::<Vec<_>>()
+    });
+
+    // 4. Insertar el turno ------------------------------------------
+    sqlx::query!(
+        r#"
+        INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
+        VALUES (?, ?, ?, ?)
+        "#,
         payload.id_partida,
         nuevo_turno,
         payload.id_usuario,
-        payload.jugada
+        jugada_json
     )
         .execute(&pool)
-        .await;
+        .await
+        .map_err(|e| {
+            // 1062 = clave duplicada (turno repetido)
+            let code = e.as_database_error().and_then(|d| d.code()).map(|c| c.to_string());
+            if code.as_deref() == Some("1062") {
+                (StatusCode::CONFLICT, "Número de turno duplicado".into())
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            }
+        })?;
+    tracing::info!("✅ Turno insertado correctamente");
 
-    if let Err(e) = &result {
-        let code = e.as_database_error().and_then(|d| d.code()).map(|s| s.to_string());
-        println!("❌ Error al insertar turno: {:?}", e);
-        if code.as_deref() == Some("1062") {
-            return Err((StatusCode::CONFLICT, "Número de turno duplicado".into()));
-        } else {
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
-        }
-    }
-
-    println!("✅ Turno insertado correctamente");
-
-    // 3. Obtener los jugadores de la partida
-    let partida = sqlx::query!(
+    // 5. Determinar próximo jugador ----------------------------------
+    let jugadores = sqlx::query!(
         "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
         payload.id_partida
     )
@@ -59,45 +95,29 @@ pub async fn post_jugada(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // 4. Alternar turno: usamos valores lógicos 1 o 2
-    let turno_logico_actual = sqlx::query_scalar!(
-        "SELECT turno_actual FROM Partida WHERE id_partida = ?",
-        payload.id_partida
-    )
-        .fetch_one(&pool)
-        .await
-        .unwrap_or(Some(1))
-        .unwrap_or(1);
-
-    let nuevo_turno_logico = if payload.id_usuario == partida.id_jugador1 {
-        partida.id_jugador2
+    let siguiente_turno = if payload.id_usuario == jugadores.id_jugador1 {
+        jugadores.id_jugador2
     } else {
-        partida.id_jugador1
+        jugadores.id_jugador1
     };
-    println!("🎯 Turno actual lógico: {}, próximo: {}", turno_logico_actual, nuevo_turno_logico);
 
-    // 5. Actualizar turno_actual con el valor lógico
+    // 6. Actualizar turno_actual -------------------------------------
     sqlx::query!(
         "UPDATE Partida SET turno_actual = ? WHERE id_partida = ?",
-        nuevo_turno_logico,
+        siguiente_turno,
         payload.id_partida
     )
         .execute(&pool)
         .await
-        .map_err(|e| {
-            println!("❌ Error al actualizar turno_actual: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-        })?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    tracing::info!("🔄 turno_actual actualizado a: {siguiente_turno}");
 
-    println!("🔄 turno_actual actualizado a: {}", nuevo_turno_logico);
-
-    // 6. Notificar por WebSocket
+    // 7. Notificar por WebSocket -------------------------------------
     let _ = tx.send("turno_finalizado".to_string());
-    println!("📡 Notificación enviada por WebSocket");
+    tracing::info!("📡 Notificación enviada por WebSocket");
 
     Ok(Json("Turno registrado"))
 }
-
 
 // 2. GET /estado/:id_partida
 #[axum::debug_handler]
@@ -506,16 +526,15 @@ pub async fn post_gol(
 
 }
 // 🔧 Handler limpio y sin #[debug_handler]
+#[axum::debug_handler]
 pub async fn get_snapshot(
     Path(id_partida): Path<i32>,
     Extension(pool): Extension<MySqlPool>,
 ) -> Result<Json<Snapshot>, (StatusCode, String)> {
-    // ── 0) estado de la partida ───────────────────────────────
+    // ───── 0) Estado de la partida ─────────────────────────────────────
     let mut _partida = sqlx::query!(
         r#"
-        SELECT
-            estado        AS "estado!: String",
-            turno_actual  -- Option<i32>
+        SELECT estado AS "estado!: String", turno_actual
         FROM Partida
         WHERE id_partida = ?
         "#,
@@ -525,69 +544,65 @@ pub async fn get_snapshot(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    println!(
-        "🔎 Estado actual de la partida {id_partida}: {}, turno_actual: {:?}",
-        _partida.estado, _partida.turno_actual
-    );
+    // ───── 1) Nombres de jugadores ────────────────────────────────────
+    let nombres = sqlx::query!(
+        r#"
+        SELECT u1.nombre_usuario AS nombre_jugador_1,
+               u2.nombre_usuario AS nombre_jugador_2
+        FROM   Partida
+        JOIN   Usuario u1 ON u1.id_usuario = Partida.id_jugador1
+        JOIN   Usuario u2 ON u2.id_usuario = Partida.id_jugador2
+        WHERE  Partida.id_partida = ?
+        "#,
+        id_partida
+    )
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // ── 1) formaciones ──────────────────────────────────────────
+    // ───── 2) Formaciones elegidas ────────────────────────────────────
     let formaciones = sqlx::query_as!(
         FormacionData,
-        "SELECT id_usuario, formacion, turno_inicio
-         FROM   FormacionElegida
-         WHERE  id_partida = ?",
+        r#"
+        SELECT id_usuario, formacion, turno_inicio
+        FROM   FormacionElegida
+        WHERE  id_partida = ?
+        "#,
         id_partida
     )
         .fetch_all(&pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Mientras no haya 2 formaciones devolvemos un snapshot “vacío”
     if formaciones.len() < 2 {
-        println!("⚠️ Faltan formaciones. Solo hay {}", formaciones.len());
         return Ok(Json(Snapshot {
             marcador: (0, 0),
             formaciones,
             turnos: vec![],
             proximo_turno: 0,
+            nombre_jugador_1: nombres.nombre_jugador_1,
+            nombre_jugador_2: nombres.nombre_jugador_2,
         }));
     }
 
-    // ── 2.5) asignar turno si es necesario ──────────────────────
+    // ───── 3) Asegurar que turno_actual esté definido ─────────────────
     if _partida.turno_actual.is_none() {
-        if let Some(jugador_inicia) = formaciones.iter().find(|f| f.turno_inicio == 1) {
-            println!("🎯 Intentando asignar turno inicial al jugador: {}", jugador_inicia.id_usuario);
-
-            let result = sqlx::query!(
+        if let Some(j1) = formaciones.iter().find(|f| f.turno_inicio == 1) {
+            sqlx::query!(
                 "UPDATE Partida SET turno_actual = ? WHERE id_partida = ? AND turno_actual IS NULL",
-                jugador_inicia.id_usuario,
+                j1.id_usuario,
                 id_partida
             )
                 .execute(&pool)
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-            if result.rows_affected() > 0 {
-                _partida.turno_actual = Some(jugador_inicia.id_usuario);
-                println!("✅ Turno inicial asignado exitosamente.");
-            } else {
-                println!("⏳ Otro jugador ya asignó el turno.");
-                let partida_actualizada = sqlx::query!(
-                    r#"
-                    SELECT estado AS "estado!: String", turno_actual
-                    FROM Partida
-                    WHERE id_partida = ?
-                    "#,
-                    id_partida
-                )
-                    .fetch_one(&pool)
-                    .await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-                _partida.turno_actual = partida_actualizada.turno_actual;
-            }
+            _partida.turno_actual = Some(j1.id_usuario);
         }
     }
 
-    // ── 3-a) marcador ───────────────────────────────────────────
+    // ───── 4) Marcador actual ─────────────────────────────────────────
     let marcador = sqlx::query!(
         "SELECT gol_j1, gol_j2 FROM Partida WHERE id_partida = ?",
         id_partida
@@ -596,18 +611,17 @@ pub async fn get_snapshot(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // ── 3-b) turnos ─────────────────────────────────────────────
-    let turnos = sqlx::query_as!(
+    // ───── 5) Turnos (¡los enriquecemos aquí!) ───────────────────────
+    let mut turnos: Vec<TurnoData> = sqlx::query_as!(
         TurnoData,
         r#"
-        SELECT
-            numero_turno,
-            id_usuario,
-            jugada,
-            fecha_turno AS "fecha_turno: chrono::NaiveDateTime"
-        FROM Turno
-        WHERE id_partida = ?
-        ORDER BY numero_turno
+        SELECT numero_turno,
+               id_usuario,
+               jugada,
+               fecha_turno AS "fecha_turno: chrono::NaiveDateTime"
+        FROM   Turno
+        WHERE  id_partida = ?
+        ORDER  BY numero_turno
         "#,
         id_partida
     )
@@ -615,10 +629,25 @@ pub async fn get_snapshot(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let turno_final = _partida.turno_actual.unwrap_or(0);
-    println!("📦 Snapshot final → turno_actual = {turno_final}");
+    // ► Añadimos id_usuario_real a cada pieza
+    for t in &mut turnos {
+        if let Some(arr) = t.jugada.get("piezas").and_then(|v| v.as_array()) {
+            let enriched: Vec<_> = arr
+                .iter()
+                .map(|p| {
+                    json!({
+                        "id_usuario_real": t.id_usuario,   // ← dueño real
+                        "x": p["x"],
+                        "y": p["y"]
+                    })
+                })
+                .collect();
 
-    // ── 4) devolver snapshot completo ──────────────────────────
+            t.jugada = json!({ "piezas": enriched });
+        }
+    }
+
+    // ───── 6) Construir y devolver el snapshot completo ───────────────
     Ok(Json(Snapshot {
         marcador: (
             marcador.gol_j1.unwrap_or(0),
@@ -626,7 +655,9 @@ pub async fn get_snapshot(
         ),
         formaciones,
         turnos,
-        proximo_turno: turno_final,
+        proximo_turno: _partida.turno_actual.unwrap_or(0),
+        nombre_jugador_1: nombres.nombre_jugador_1,
+        nombre_jugador_2: nombres.nombre_jugador_2,
     }))
 }
 

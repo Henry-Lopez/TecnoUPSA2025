@@ -82,5 +82,7 @@ pub struct Snapshot {
     pub marcador       : (i32, i32),
     pub formaciones    : Vec<FormacionData>,
     pub turnos         : Vec<TurnoData>,   // ya lo tienes
-    pub proximo_turno  : i32,              // id_usuario al que le toca
+    pub proximo_turno  : i32,
+    pub nombre_jugador_1: String, // 👈 nuevo
+    pub nombre_jugador_2: String, // 👈 nuevo// id_usuario al que le toca
 }
