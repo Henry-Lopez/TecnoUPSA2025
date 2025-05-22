@@ -66,8 +66,12 @@ async fn main() {
                 .allow_methods(Any)
                 .allow_headers(Any),
         );
+    let port = std::env::var("PORT")
+    .unwrap_or_else(|_| "10000".to_string()) // Valor por defecto si PORT no está definido
+    .parse::<u16>()
+    .expect("PORT debe ser un número válido");
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
+    let addr = SocketAddr::from(([0,0,0,0], port));
     let listener = TcpListener::bind(addr).await.unwrap();
     println!("✅ Servidor escuchando en http://{}", addr);
 
