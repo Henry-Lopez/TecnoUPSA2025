@@ -1,82 +1,153 @@
 //! routes/websocket.rs
-//! -----------------------------------------------------------------
-//!   GET /ws/{partida}/{uid}  →  WebSocket broadcast
-//!
-//!   • Cada cliente envía texto        (Message::Text)
-//!   • El servidor lo re-difunde a todos los suscritos
-//!   • Se agregan logs y manejo robusto de errores
-//! -----------------------------------------------------------------
+//! Mejorado: Canales por partida, validación, pings, snapshot etiquetado y filtro por uid
 
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Extension, Path,
     },
-    response::IntoResponse,
+    http::StatusCode,
+    response::{IntoResponse, Response},
 };
 use futures_util::{SinkExt, StreamExt};
-use tokio::sync::broadcast::{error::RecvError, Sender};
+use once_cell::sync::OnceCell;
+use serde_json::{json, Value};
+use sqlx::MySqlPool;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use tokio::{
+    sync::broadcast::{self, error::RecvError, Receiver, Sender},
+    time,
+};
 use tracing::{debug, error, info, warn};
+
+use crate::handlers::get_snapshot;
+use axum::extract::Path as AxumPath;
+use http_body_util::BodyExt;
+
+static PARTIDA_CHANNELS: OnceCell<Mutex<HashMap<i32, Sender<String>>>> = OnceCell::new();
+
+fn get_or_create_channel(partida: i32) -> Sender<String> {
+    let map = PARTIDA_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map.lock().unwrap();
+    guard
+        .entry(partida)
+        .or_insert_with(|| {
+            let (tx, _rx) = broadcast::channel::<String>(100);
+            tx
+        })
+        .clone()
+}
 
 /// Handler de la ruta `/ws/:partida/:uid`
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     Path((partida, uid)): Path<(i32, i32)>,
-    Extension(tx): Extension<Sender<String>>,
+    Extension(pool): Extension<MySqlPool>,
 ) -> impl IntoResponse {
-    info!("🌐 WS-OPEN  partida={partida}  uid={uid}");
-    ws.on_upgrade(move |socket| client_session(socket, partida, uid, tx))
+    info!("🌐 WS-OPEN partida={} uid={}", partida, uid);
+
+    let ok: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) as count FROM FormacionElegida WHERE id_usuario = ? AND id_partida = ?",
+        uid,
+        partida
+    )
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+
+    if ok == 0 {
+        info!("🚫 WS-RECHAZADO: uid={} no pertenece a partida={}", uid, partida);
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    let tx = get_or_create_channel(partida);
+    ws.on_upgrade(move |socket| client_session(socket, partida, uid, tx, pool.clone()))
 }
 
-/// Bucle principal de un cliente WebSocket
-async fn client_session(socket: WebSocket, partida: i32, uid: i32, tx: Sender<String>) {
+async fn client_session(
+    socket: WebSocket,
+    partida: i32,
+    uid: i32,
+    tx: Sender<String>,
+    pool: MySqlPool,
+) {
     let (mut outbound, mut inbound) = socket.split();
-    let mut rx = tx.subscribe();
+    let mut rx: Receiver<String> = tx.subscribe();
+    let mut ping_interval = time::interval(time::Duration::from_secs(30));
 
-    /* ─── Task 1 : Servidor ➜ Cliente ───────────────────────────── */
-    let forward = tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(text) => {
-                    if let Err(e) = outbound.send(Message::Text(text)).await {
-                        error!("❌ Error enviando a cliente WS uid={uid}: {e}");
-                        break;
+    let forward = tokio::spawn({
+        let pool = pool.clone();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = ping_interval.tick() => {
+                        let _ = outbound.send(Message::Ping(b"ping".to_vec())).await;
                     }
-                }
-                Err(RecvError::Lagged(n)) => {
-                    warn!("⚠️  WS lag ({n} mensajes perdidos) uid={uid}");
-                }
-                Err(RecvError::Closed) => {
-                    warn!("🔒 Canal cerrado para WS uid={uid}");
-                    break;
+                    msg = rx.recv() => {
+                        match msg {
+                            Ok(text) => {
+                                if let Ok(json_msg) = serde_json::from_str::<Value>(&text) {
+                                    if json_msg["uid_origen"] == json!(uid) {
+                                        continue; // no reenviar a sí mismo
+                                    }
+                                }
+                                if outbound.send(Message::Text(text)).await.is_err() {
+                                    error!("❌ Error enviando a WS uid={}", uid);
+                                    break;
+                                }
+                            }
+                            Err(RecvError::Lagged(n)) => {
+                                warn!("⚠️  WS lag ({} mensajes perdidos) uid={}", n, uid);
+                                if let Ok(snapshot_str) = get_snapshot_json(partida, pool.clone()).await {
+                                    let snapshot_wrapped = json!({
+                                        "uid_origen": 0,
+                                        "tipo": "snapshot",
+                                        "contenido": serde_json::from_str::<Value>(&snapshot_str).unwrap_or(json!({}))
+                                    });
+                                    let _ = outbound.send(Message::Text(snapshot_wrapped.to_string())).await;
+                                }
+                            }
+                            Err(RecvError::Closed) => {
+                                warn!("🔒 Canal cerrado para uid={}", uid);
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
     });
 
-    /* ─── Task 2 : Cliente ➜ Servidor ───────────────────────────── */
     while let Some(result) = inbound.next().await {
         match result {
             Ok(Message::Text(txt)) => {
-                debug!("📨 WS  part={partida} uid={uid} → {txt}");
-                if tx.send(txt).is_err() {
-                    warn!("📴 Nadie suscrito al canal WS (uid={uid})");
+                debug!("📨 part={} uid={} → {}", partida, uid, txt);
+                let json = format!(r#"{{"uid_origen":{},"contenido":{}}}"#, uid, txt);
+                if tx.send(json).is_err() {
+                    warn!("📴 Nadie suscrito WS uid={}", uid);
                 }
             }
             Ok(Message::Close(reason)) => {
-                info!("❌ Cliente cerró WS uid={uid} razón={:?}", reason);
+                info!("❌ Cliente cerró WS uid={} razón={:?}", uid, reason);
                 break;
             }
-            Ok(_) => {
-                // Ignoramos Binary/Ping/Pong
-            }
+            Ok(_) => {}
             Err(e) => {
-                error!("❌ Error en mensaje WS uid={uid}: {e}");
+                error!("❌ Error en WS uid={}: {}", uid, e);
                 break;
             }
         }
     }
 
-    forward.abort(); // cancela la tarea secundaria
-    info!("🔌 WS-CLOSE partida={partida} uid={uid}");
+    forward.abort();
+    info!("🔌 WS-CLOSE partida={} uid={}", partida, uid);
+}
+
+async fn get_snapshot_json(partida: i32, pool: MySqlPool) -> Result<String, ()> {
+    let response: Response = get_snapshot(AxumPath(partida), Extension(pool))
+        .await
+        .into_response();
+    let body = response.into_body().collect().await.map_err(|_| ())?.to_bytes();
+    String::from_utf8(body.to_vec()).map_err(|_| ())
 }

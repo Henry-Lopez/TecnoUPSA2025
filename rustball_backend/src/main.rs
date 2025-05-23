@@ -1,12 +1,10 @@
-//! src/main.rs
-
 use axum::{
     extract::Extension,
     routing::{get, post, get_service},
     Router,
 };
 use std::{net::SocketAddr, path::PathBuf};
-use tokio::{net::TcpListener, sync::broadcast};
+use tokio::net::TcpListener;
 use tower_http::{
     cors::{CorsLayer, Any},
     services::{ServeDir, ServeFile},
@@ -43,9 +41,6 @@ async fn main() {
         }
     };
 
-    /* ─── Canal broadcast WebSocket ───────────────────────────── */
-    let (tx, _rx) = broadcast::channel::<String>(100);
-
     /* ─── API (REST + WebSocket) ─────────────────────────────── */
     let api = Router::new()
         .route("/jugada",               post(post_jugada))
@@ -62,8 +57,7 @@ async fn main() {
         .route("/pendientes/:u",        get(get_partidas_pendientes))
         .route("/partida_detalle/:p",   get(get_partida_detalle))
         .route("/ws/:partida/:uid",     get(websocket_handler))
-        .layer(Extension(db_pool))
-        .layer(Extension(tx.clone()));
+        .layer(Extension(db_pool));
 
     /* ─── Archivos estáticos (SPA) ───────────────────────────── */
     let static_dir: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("webapp");
