@@ -3,81 +3,99 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use futures_util::TryFutureExt;
 use serde::Deserialize;
-use sqlx::MySqlPool;
-use crate::models::*;
+use serde_json::json; // Asegúrate de que esto está importado
+use sqlx::{MySqlPool}; // Mantendremos las importaciones que tenías si las quieres
+use tokio::sync::broadcast;
+use crate::models::*; // Asegúrate de que tus modelos están en scope
+use tracing; // Asegúrate de que tracing está en scope
 
 #[axum::debug_handler]
 pub async fn post_jugada(
     Extension(pool): Extension<MySqlPool>,
-    Extension(tx):   Extension<broadcast::Sender<String>>,
-    Json(payload):   Json<JugadaPayload>,
+    Extension(tx): Extension<broadcast::Sender<String>>,
+    Json(payload): Json<JugadaPayload>,
 ) -> Result<Json<&'static str>, (StatusCode, String)> {
-    tracing::info!("▶️  POST /jugada  —  {:?}", payload);
+    tracing::info!("▶️  POST /jugada — Recibido payload: {:?}", payload);
 
-    /* 1. Validar turno_actual ----------------------------------------- */
-    tracing::debug!("🔍 Leyendo turno_actual de BD…");
+    // Iniciar una transacción
+    let mut transaction = pool.begin().await.map_err(|e| {
+        tracing::error!("❌ Error al iniciar transacción: {:?}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al iniciar transacción: {}", e))
+    })?;
+
+    /* ─── 1. Validar turno_actual ───────────────────────────── */
+    tracing::debug!("🔍 Leyendo turno_actual desde la base de datos...");
     let turno_actual: Option<i32> = sqlx::query_scalar!(
         "SELECT turno_actual FROM Partida WHERE id_partida = ?",
         payload.id_partida
     )
-        .fetch_one(&pool)
+        .fetch_one(&mut *transaction)
         .await
         .map_err(|e| {
-            tracing::error!("❌ SQL error turno_actual: {e:?}");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            tracing::error!("❌ Error al consultar turno_actual: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al leer turno_actual: {}", e))
         })?;
 
-    tracing::debug!(
-        turno_actual = ?turno_actual,
-        id_usuario   = payload.id_usuario,
-        "validando turno"
-    );
+    tracing::debug!(?turno_actual, "✅ turno_actual leído correctamente");
 
     if turno_actual != Some(payload.id_usuario) {
+        tracing::warn!(
+            "⛔ Jugador {} intentó jugar fuera de turno. Turno actual: {:?}",
+            payload.id_usuario,
+            turno_actual
+        );
         return Err((
             StatusCode::BAD_REQUEST,
-            format!("No es el turno del usuario {}.", payload.id_usuario),
+            format!(
+                "No es el turno del usuario {}. Turno actual: {:?}",
+                payload.id_usuario, turno_actual
+            ),
         ));
     }
 
-    /* ⚠  Desde aquí todo en el mismo orden (opcionalmente TRANSACTION) */
-    /* 2. Calcular numero_turno --------------------------------------- */
+    /* ─── 2. Calcular nuevo número de turno ─────────────────── */
     let max_turno_i64: i64 = sqlx::query_scalar!(
-        "SELECT COALESCE(MAX(numero_turno),0) FROM Turno WHERE id_partida = ?",
+        "SELECT COALESCE(MAX(numero_turno), 0) FROM Turno WHERE id_partida = ?",
         payload.id_partida
     )
-        .fetch_one(&pool)
+        .fetch_one(&mut *transaction)
         .await
         .map_err(|e| {
-            tracing::error!("❌ SQL error MAX(numero_turno): {e:?}");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            tracing::error!("❌ Error al calcular MAX(numero_turno): {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Error interno al calcular número de turno".into())
         })?;
 
     let nuevo_turno = (max_turno_i64 as i32) + 1;
-    tracing::debug!(max_turno = max_turno_i64, nuevo_turno, "calculado");
+    tracing::debug!(nuevo_turno, "✅ Nuevo número de turno calculado");
 
-    /* 3. Enriquecer jugada con id_usuario_real ----------------------- */
+    /* ─── 3. Enriquecer jugada con id_usuario_real ───────────── */
     let piezas_json = payload
         .jugada
         .get("piezas")
         .and_then(|v| v.as_array())
-        .ok_or((
-            StatusCode::BAD_REQUEST,
-            "Formato de jugada inválido: falta 'piezas'".to_string(),
-        ))?;
+        .ok_or_else(|| {
+            tracing::warn!("⚠️ Formato inválido: falta 'piezas' en jugada");
+            (
+                StatusCode::BAD_REQUEST,
+                "Formato de jugada inválido: falta 'piezas'".to_string(),
+            )
+        })?;
 
     let jugada_json = json!({
         "piezas": piezas_json.iter().map(|p| {
             json!({
                 "id_usuario_real": payload.id_usuario,
-                "x": p["x"],
-                "y": p["y"]
+                "x": p.get("x").unwrap_or(&json!(null)),
+                "y": p.get("y").unwrap_or(&json!(null))
             })
         }).collect::<Vec<_>>()
     });
 
-    /* 4. Insertar turno ---------------------------------------------- */
+    tracing::debug!("📦 Jugada enriquecida lista para insertar: {:?}", jugada_json);
+
+    /* ─── 4. Insertar turno ──────────────────────────────────── */
     sqlx::query!(
         r#"
         INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
@@ -88,35 +106,37 @@ pub async fn post_jugada(
         payload.id_usuario,
         jugada_json
     )
-        .execute(&pool)
+        .execute(&mut *transaction)
         .await
         .map_err(|e| {
-            let dup = e
+            let is_duplicate = e
                 .as_database_error()
                 .and_then(|d| d.code())
                 .map(|c| c == "1062")
                 .unwrap_or(false);
 
-            if dup {
+            if is_duplicate {
+                tracing::warn!("⚠️ Turno duplicado detectado");
                 (StatusCode::CONFLICT, "Número de turno duplicado".into())
             } else {
-                tracing::error!("❌ SQL error INSERT Turno: {e:?}");
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                tracing::error!("❌ Error al insertar turno: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Error insertando turno: {}", e))
             }
         })?;
-    tracing::debug!("✅ Turno #{nuevo_turno} insertado");
 
-    /* 5. Calcular siguiente jugador ---------------------------------- */
+    tracing::info!("✅ Turno #{nuevo_turno} insertado correctamente");
+
+    /* ─── 5. Calcular siguiente jugador ─────────────────────── */
     let (j1, j2) = sqlx::query!(
         "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
         payload.id_partida
     )
-        .fetch_one(&pool)
+        .fetch_one(&mut *transaction)
         .await
         .map(|r| (r.id_jugador1, r.id_jugador2))
         .map_err(|e| {
-            tracing::error!("❌ SQL error jugadores: {e:?}");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            tracing::error!("❌ Error al obtener jugadores: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al obtener jugadores: {}", e))
         })?;
 
     let siguiente_turno = if payload.id_usuario == j1 { j2 } else { j1 };
@@ -126,31 +146,46 @@ pub async fn post_jugada(
         siguiente_turno,
         payload.id_partida
     )
-        .execute(&pool)
+        .execute(&mut *transaction)
         .await
         .map_err(|e| {
-            tracing::error!("❌ UPDATE turno_actual: {e:?}");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            tracing::error!("❌ Error al actualizar turno_actual: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al actualizar turno_actual: {}", e))
         })?;
-    tracing::debug!("🔄 turno_actual -> {siguiente_turno}");
 
-    /* 6. Generar snapshot + notificar -------------------------------- */
+    tracing::info!("🔄 turno_actual actualizado a {}", siguiente_turno);
+
+    /* ─── 6. Confirmar transacción ───────────────────────────── */
+    transaction.commit().await.map_err(|e| {
+        tracing::error!("❌ Error al confirmar transacción: {:?}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al confirmar: {}", e))
+    })?;
+
+    tracing::info!("✅ Transacción confirmada correctamente");
+
+    /* ─── 7. Generar snapshot y notificar ───────────────────── */
     let snap = super::get_snapshot(
         Path(payload.id_partida),
         Extension(pool.clone()),
     )
         .await
         .map_err(|e| {
-            tracing::error!("❌ Snapshot error: {e:?}");
+            tracing::error!("❌ Error al generar snapshot: {:?}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Error generando snapshot".into())
         })?
         .0;
 
-    let _ = tx.send("turno_finalizado".to_string());
-    let _ = tx.send(serde_json::to_string(&snap).unwrap());
+    if tx.send("turno_finalizado".to_string()).is_err() {
+        tracing::warn!("📢 No hay oyentes para 'turno_finalizado'");
+    }
+
+    if let Err(e) = tx.send(serde_json::to_string(&snap).unwrap_or_default()) {
+        tracing::warn!("📢 No hay oyentes para snapshot: {}", e);
+    }
 
     Ok(Json("Turno registrado"))
 }
+
 
 // 2. GET /estado/:id_partida
 #[axum::debug_handler]
@@ -244,7 +279,6 @@ pub async fn get_estadisticas(
     }
 }
 
-// 5. POST /formacion ───────────────────────────────────────────────
 #[axum::debug_handler]
 pub async fn post_formacion(
     Extension(pool): Extension<MySqlPool>,
@@ -253,7 +287,12 @@ pub async fn post_formacion(
 ) -> Result<Json<&'static str>, (StatusCode, String)> {
     tracing::info!("▶️  POST /formacion — {:?}", p);
 
-    /* 1. INSERT / UPDATE ------------------------------------------------ */
+    // No iniciamos la transacción de inmediato para permitir que
+    // el primer INSERT/UPDATE de `FormacionElegida` se haga fuera si ya existe.
+    // Esto es un patrón común: solo empezar la transacción cuando el estado crítico
+    // va a ser modificado atómicamente.
+
+    /* 1. INSERT / UPDATE FormacionElegida ------------------------------------------------ */
     tracing::info!("1️⃣  Guardando formación…");
     sqlx::query!(
         r#"
@@ -265,33 +304,58 @@ pub async fn post_formacion(
         p.id_usuario,
         p.formacion
     )
-        .execute(&pool)
+        .execute(&pool) // Usamos el pool directamente aquí
         .await
         .map_err(|e| {
             tracing::error!("❌ SQL error INSERT/UPDATE FormacionElegida: {e:?}");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error del servidor: {}", e))
         })?;
 
-    /* 2. ¿Ya hay 2 formaciones? ---------------------------------------- */
+    /* 2. ¿Ya hay 2 formaciones? (Lectura fuera de transacción) ---------------------------------------- */
     tracing::info!("2️⃣  Comprobando si ya hay 2 formaciones…");
-    let formaciones = sqlx::query!(
+    let formaciones_existentes = sqlx::query!(
         "SELECT id_usuario, turno_inicio FROM FormacionElegida WHERE id_partida = ?",
         p.id_partida
     )
-        .fetch_all(&pool)
+        .fetch_all(&pool) // Usamos el pool directamente para esta lectura
         .await
         .map_err(|e| {
             tracing::error!("❌ SQL error SELECT FormacionElegida: {e:?}");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error del servidor: {}", e))
         })?;
 
-    if formaciones.len() < 2 {
-        tracing::info!("ℹ️  Falta la otra formación (len={})", formaciones.len());
+    if formaciones_existentes.len() < 2 {
+        tracing::info!("ℹ️  Falta la otra formación (len={})", formaciones_existentes.len());
         return Ok(Json("Formación registrada"));
     }
 
-    /* 3. Calcular turno_inicio=1  (el que arranca) --------------------- */
-    let primero = formaciones
+    // ─── A partir de aquí, las operaciones deben ser atómicas. Iniciamos la transacción. ───
+    let mut transaction = pool.begin()
+        .await
+        .map_err(|e| {
+            tracing::error!("❌ Error al iniciar transacción: {e:?}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error del servidor: {}", e))
+        })?;
+
+    /* 3. Calcular turno_inicio=1 (el que arranca) --------------------- */
+    // Re-leer formaciones dentro de la transacción si la consistencia es ultra-crítica
+    // para evitar que otro request las modifique justo antes de la transacción.
+    // Para este caso, la lectura fuera de la transacción para el `if formaciones.len() < 2`
+    // es probablemente suficiente, ya que si cambia, la transacción lo manejará o fallará.
+    // Pero si quieres la máxima seguridad:
+    let formaciones_para_tx = sqlx::query!(
+        "SELECT id_usuario, turno_inicio FROM FormacionElegida WHERE id_partida = ?",
+        p.id_partida
+    )
+        .fetch_all(&mut *transaction) // Usar &mut *transaction
+        .await
+        .map_err(|e| {
+            tracing::error!("❌ SQL error SELECT FormacionElegida (en TX): {e:?}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error del servidor: {}", e))
+        })?;
+
+
+    let primero = formaciones_para_tx // Usamos la re-lectura para la lógica de sorteo
         .iter()
         .find(|f| f.turno_inicio == 1)
         .map(|f| f.id_usuario);
@@ -300,7 +364,7 @@ pub async fn post_formacion(
         Some(uid) => uid,
         None => {
             // Si aún no se inicializó turno_inicio, sorteamos y actualizamos.
-            let [a, b] = [formaciones[0].id_usuario, formaciones[1].id_usuario];
+            let [a, b] = [formaciones_para_tx[0].id_usuario, formaciones_para_tx[1].id_usuario];
             let (primero, segundo) = if rand::random() { (a, b) } else { (b, a) };
 
             for (uid, idx) in [(primero, 1), (segundo, 2)] {
@@ -310,11 +374,11 @@ pub async fn post_formacion(
                     p.id_partida,
                     uid
                 )
-                    .execute(&pool)
+                    .execute(&mut *transaction) // Usar &mut *transaction
                     .await
                     .map_err(|e| {
-                        tracing::error!("❌ UPDATE turno_inicio (uid={uid}): {e:?}");
-                        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                        tracing::error!("❌ UPDATE turno_inicio (uid={uid}) en TX: {e:?}");
+                        (StatusCode::INTERNAL_SERVER_ERROR, format!("Error del servidor: {}", e))
                     })?;
             }
             primero
@@ -322,24 +386,34 @@ pub async fn post_formacion(
     };
     tracing::info!("3️⃣  turno_actual inicial será uid={primero}");
 
-    /* 4. UPDATE Partida → estado='playing', turno_actual -------------- */
+    /* 4. UPDATE Partida → estado='playing', turno_actual (dentro de transacción) -------------- */
     sqlx::query!(
         "UPDATE Partida SET estado = 'playing', turno_actual = ? WHERE id_partida = ?",
         primero,
         p.id_partida
     )
-        .execute(&pool)
+        .execute(&mut *transaction) // Usar &mut *transaction
         .await
         .map_err(|e| {
-            tracing::error!("❌ UPDATE Partida: {e:?}");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            tracing::error!("❌ UPDATE Partida en TX: {e:?}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error del servidor: {}", e))
         })?;
+    tracing::debug!("✅ Partida actualizada a 'playing' y turno inicial.");
 
-    /* 5. Generar snapshot inicial y avisar ---------------------------- */
+    // Confirmar la transacción si todo ha ido bien hasta ahora
+    transaction.commit()
+        .await
+        .map_err(|e| {
+            tracing::error!("❌ Error al confirmar transacción: {e:?}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error del servidor: {}", e))
+        })?;
+    tracing::info!("✅ Transacción de formación confirmada.");
+
+    /* 5. Generar snapshot inicial y avisar (fuera de transacción) ---------------------------- */
     tracing::info!("5️⃣  Generando snapshot inicial…");
     let snap = super::get_snapshot(
         Path(p.id_partida),
-        Extension(pool.clone()),
+        Extension(pool.clone()), // Usar el pool original, no la transacción
     )
         .await
         .map_err(|e| {
@@ -358,11 +432,7 @@ pub async fn post_formacion(
     Ok(Json("Formación registrada y partida arrancada"))
 }
 
-
 // 6. POST /registro
-use serde_json::json;
-use tokio::sync::broadcast;
-
 #[axum::debug_handler]
 pub async fn post_registro(
     Extension(pool): Extension<MySqlPool>,
@@ -584,10 +654,12 @@ pub async fn get_snapshot(
     Path(id_partida): Path<i32>,
     Extension(pool): Extension<MySqlPool>,
 ) -> Result<Json<Snapshot>, (StatusCode, String)> {
-    // ───── 0) Estado de la partida ─────────────────────────────────────
-    let mut _partida = sqlx::query!(
+    tracing::info!("▶️ GET /snapshot/{id_partida} — Solicitando snapshot");
+
+    // ───── 0) Estado de la partida ───────────────────────────────
+    let partida_data = sqlx::query!(
         r#"
-        SELECT estado AS "estado!: String", turno_actual
+        SELECT estado AS "estado!: String", turno_actual, gol_j1, gol_j2
         FROM Partida
         WHERE id_partida = ?
         "#,
@@ -595,9 +667,21 @@ pub async fn get_snapshot(
     )
         .fetch_one(&pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!("❌ Error SQL en estado de partida: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error al obtener estado de la partida".into(),
+            )
+        })?;
 
-    // ───── 1) Nombres de jugadores ────────────────────────────────────
+    tracing::debug!(
+        estado = %partida_data.estado,
+        turno_actual = ?partida_data.turno_actual,
+        "ℹ️ Estado inicial de partida obtenido"
+    );
+
+    // ───── 1) Nombres de jugadores ────────────────────────────────
     let nombres = sqlx::query!(
         r#"
         SELECT u1.nombre_usuario AS nombre_jugador_1,
@@ -611,9 +695,15 @@ pub async fn get_snapshot(
     )
         .fetch_one(&pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!("❌ Error SQL en nombres de jugadores: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error al obtener nombres de jugadores".into(),
+            )
+        })?;
 
-    // ───── 2) Formaciones elegidas ────────────────────────────────────
+    // ───── 2) Formaciones ──────────────────────────────────────────
     let formaciones = sqlx::query_as!(
         FormacionData,
         r#"
@@ -625,47 +715,38 @@ pub async fn get_snapshot(
     )
         .fetch_all(&pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!("❌ Error SQL en formaciones: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error al obtener formaciones".into(),
+            )
+        })?;
 
-    // Mientras no haya 2 formaciones devolvemos un snapshot “vacío”
     if formaciones.len() < 2 {
+        tracing::warn!(
+            "⚠️ Solo {} formaciones encontradas. Devolviendo snapshot parcial.",
+            formaciones.len()
+        );
         return Ok(Json(Snapshot {
             marcador: (0, 0),
             formaciones,
             turnos: vec![],
-            proximo_turno: 0,
+            proximo_turno: Some(0),
             nombre_jugador_1: nombres.nombre_jugador_1,
             nombre_jugador_2: nombres.nombre_jugador_2,
         }));
     }
 
-    // ───── 3) Asegurar que turno_actual esté definido ─────────────────
-    if _partida.turno_actual.is_none() {
-        if let Some(j1) = formaciones.iter().find(|f| f.turno_inicio == 1) {
-            sqlx::query!(
-                "UPDATE Partida SET turno_actual = ? WHERE id_partida = ? AND turno_actual IS NULL",
-                j1.id_usuario,
-                id_partida
-            )
-                .execute(&pool)
-                .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // ───── 3) Marcador ─────────────────────────────────────────────
+    let marcador = (
+        partida_data.gol_j1.unwrap_or(0),
+        partida_data.gol_j2.unwrap_or(0),
+    );
+    tracing::debug!("📊 Marcador actual: {:?}", marcador);
 
-            _partida.turno_actual = Some(j1.id_usuario);
-        }
-    }
-
-    // ───── 4) Marcador actual ─────────────────────────────────────────
-    let marcador = sqlx::query!(
-        "SELECT gol_j1, gol_j2 FROM Partida WHERE id_partida = ?",
-        id_partida
-    )
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    // ───── 5) Turnos (¡los enriquecemos aquí!) ───────────────────────
-    let mut turnos: Vec<TurnoData> = sqlx::query_as!(
+    // ───── 4) Turnos enriquecidos ─────────────────────────────────
+    let mut turnos = sqlx::query_as!(
         TurnoData,
         r#"
         SELECT numero_turno,
@@ -680,35 +761,44 @@ pub async fn get_snapshot(
     )
         .fetch_all(&pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!("❌ Error SQL al obtener turnos: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error al obtener turnos".into(),
+            )
+        })?;
 
-    // ► Añadimos id_usuario_real a cada pieza
     for t in &mut turnos {
         if let Some(arr) = t.jugada.get("piezas").and_then(|v| v.as_array()) {
             let enriched: Vec<_> = arr
                 .iter()
                 .map(|p| {
                     json!({
-                        "id_usuario_real": t.id_usuario,   // ← dueño real
-                        "x": p["x"],
-                        "y": p["y"]
+                        "id_usuario_real": t.id_usuario,
+                        "x": p.get("x").unwrap_or(&json!(null)),
+                        "y": p.get("y").unwrap_or(&json!(null))
                     })
                 })
                 .collect();
-
             t.jugada = json!({ "piezas": enriched });
+        } else {
+            tracing::warn!(
+                "⚠️ Turno #{} no tiene piezas válidas. Jugada original: {:?}",
+                t.numero_turno,
+                t.jugada
+            );
         }
     }
 
-    // ───── 6) Construir y devolver el snapshot completo ───────────────
+    // ───── 5) Retornar Snapshot ─────────────────────────────────────
+    tracing::info!("✅ Snapshot de partida {} generado con éxito", id_partida);
+
     Ok(Json(Snapshot {
-        marcador: (
-            marcador.gol_j1.unwrap_or(0),
-            marcador.gol_j2.unwrap_or(0),
-        ),
+        marcador,
         formaciones,
         turnos,
-        proximo_turno: _partida.turno_actual.unwrap_or(0),
+        proximo_turno: partida_data.turno_actual,
         nombre_jugador_1: nombres.nombre_jugador_1,
         nombre_jugador_2: nombres.nombre_jugador_2,
     }))

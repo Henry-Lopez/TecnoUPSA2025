@@ -1,5 +1,5 @@
 // js/api.js
-const BASE = "http://localhost:10000/api";
+const BASE = "https://rustball.lat/api"; // ✅ Cambiado para entorno en producción
 
 /* POST con body JSON */
 export async function post(path, payload) {

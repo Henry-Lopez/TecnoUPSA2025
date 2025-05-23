@@ -1,10 +1,4 @@
 //! src/main.rs
-//! ------------------------------------------------------------------
-//! • Sirve la API REST en  /api/*
-//! • Sirve los archivos de la SPA (webapp/) en la raíz  /
-//! • Expone un WebSocket en  /api/ws/{partida}/{uid}
-//! • Habilita CORS *  +  trace de peticiones en desarrollo
-//! ------------------------------------------------------------------
 
 use axum::{
     extract::Extension,
@@ -14,39 +8,46 @@ use axum::{
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::{net::TcpListener, sync::broadcast};
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::{CorsLayer, Any},
     services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
-use tracing::{info, Level};
+use tracing::{info, error, Level};
 use tracing_subscriber::EnvFilter;
+use http::HeaderValue;
 
-/* ────── Módulos de la crate ─────────────────────────────────────── */
+/* ────── Módulos ───────────────────────────────────────────── */
 mod models;
 mod handlers;
 mod db_mysql;
-mod routes; // ↳ routes::websocket
+mod routes;
 
 use handlers::*;
 use routes::websocket::websocket_handler;
 
 #[tokio::main]
 async fn main() {
-    /* ─── Tracing / logging ──────────────────────────────────────── */
+    /* ─── Tracing / Logging ───────────────────────────────────── */
     tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)              //  ◀ DEBUG global
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_max_level(Level::DEBUG)
+        .with_env_filter(EnvFilter::new("debug"))
         .init();
 
-    /* ─── Pool MySQL ─────────────────────────────────────────────── */
-    let db_pool = db_mysql::init_pool().await;
+    info!("🚀 Iniciando backend RustBall...");
 
-    /* ─── Canal broadcast WebSocket ──────────────────────────────── */
+    /* ─── Conexión a MySQL ───────────────────────────────────── */
+    let db_pool = match db_mysql::init_pool().await {
+        pool => {
+            info!("✅ Conexión a MySQL establecida.");
+            pool
+        }
+    };
+
+    /* ─── Canal broadcast WebSocket ───────────────────────────── */
     let (tx, _rx) = broadcast::channel::<String>(100);
 
-    /* ─── Router REST + WS (/api) ────────────────────────────────── */
+    /* ─── API (REST + WebSocket) ─────────────────────────────── */
     let api = Router::new()
-        /* REST ---------------------------------------------------- */
         .route("/jugada",               post(post_jugada))
         .route("/estado/:id",           get(get_estado))
         .route("/usuarios",             get(get_usuarios))
@@ -60,43 +61,49 @@ async fn main() {
         .route("/snapshot/:p",          get(get_snapshot))
         .route("/pendientes/:u",        get(get_partidas_pendientes))
         .route("/partida_detalle/:p",   get(get_partida_detalle))
-        /* WebSocket ---------------------------------------------- */
         .route("/ws/:partida/:uid",     get(websocket_handler))
-        /* Estado compartido -------------------------------------- */
         .layer(Extension(db_pool))
         .layer(Extension(tx.clone()));
 
-    /* ─── Archivos estáticos (SPA) ──────────────────────────────── */
+    /* ─── Archivos estáticos (SPA) ───────────────────────────── */
     let static_dir: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("webapp");
     let landing = static_dir.join("registro.html");
 
     let static_site = Router::new()
-        .route("/", get_service(ServeFile::new(landing)))
-        .route_service("/*path", get_service(ServeDir::new(static_dir)));
+        .route("/", get_service(ServeFile::new(landing.clone())))
+        .route_service("/*path", get_service(ServeDir::new(static_dir.clone())));
 
-    /* ─── CORS y trace (solo dev) ───────────────────────────────── */
+    info!("📁 Archivos estáticos servidos desde: {:?}", static_dir);
+
+    /* ─── Middlewares CORS + Trace ───────────────────────────── */
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin("https://rustball.lat".parse::<HeaderValue>().unwrap())
         .allow_methods(Any)
         .allow_headers(Any);
 
-    /* ─── Router raíz ───────────────────────────────────────────── */
     let app = Router::new()
         .nest("/api", api)
         .merge(static_site)
-        .layer(cors)                       //  ◀ primero CORS
-        .layer(TraceLayer::new_for_http()); // ◀ luego Trace
+        .layer(cors)
+        .layer(TraceLayer::new_for_http());
 
-    /* ─── Arrancar servidor ─────────────────────────────────────── */
+    /* ─── Arrancar servidor ───────────────────────────────────── */
     let port: u16 = std::env::var("PORT")
-        .unwrap_or_else(|_| "10000".into())
+        .unwrap_or_else(|_| {
+            info!("🌐 No se encontró PORT, usando 10000 por defecto");
+            "10000".into()
+        })
         .parse()
-        .expect("PORT debe ser numérico");
+        .unwrap_or_else(|e| {
+            error!("❌ El PORT no es válido: {}", e);
+            std::process::exit(1);
+        });
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    info!("✅ Backend escuchando en http://{addr}");
+    // Escuchar en todas las interfaces para Render
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    info!("🟢 Servidor escuchando en: http://{}", addr);
 
-    axum::serve(TcpListener::bind(addr).await.unwrap(), app)
-        .await
-        .unwrap();
+    if let Err(e) = axum::serve(TcpListener::bind(addr).await.unwrap(), app).await {
+        error!("❌ Error al iniciar el servidor: {}", e);
+    }
 }

@@ -65,6 +65,7 @@ pub struct TurnoData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SnapshotFromServer {
+    pub estado: String,            // 👈 Agregado
     pub marcador: (u32, u32),
     pub formaciones: Vec<FormacionData>,
     pub turnos: Vec<TurnoData>,
@@ -83,13 +84,26 @@ static LAST_TURNO: std::sync::Mutex<i32> = std::sync::Mutex::new(0);
 /* ───────────── Callback JS → Rust ───────────── */
 #[wasm_bindgen]
 pub fn set_game_state(json: String, my_uid: i32) {
-    let snap: SnapshotFromServer =
-        serde_json::from_str(&json).expect("snapshot JSON malformado");
+    let snap: SnapshotFromServer = match serde_json::from_str(&json) {
+        Ok(s) => s,
+        Err(_) => {
+            error!("❌ snapshot JSON malformado");
+            return;
+        }
+    };
+
+    // Validación extra: solo continuar si el snapshot indica que la partida está lista
+    if snap.estado != "playing" || snap.proximo_turno == 0 {
+        warn!("⏳ Partida aún no está en estado 'playing' o turno inválido. Ignorando snapshot.");
+        return;
+    }
 
     let mut last = LAST_TURNO.lock().unwrap();
 
-    info!("📥 Recibido snapshot turno {} (último aplicado {})",
-          snap.proximo_turno, *last);
+    info!(
+        "📥 Recibido snapshot turno {} (último aplicado {})",
+        snap.proximo_turno, *last
+    );
 
     if snap.proximo_turno > *last {
         *last = snap.proximo_turno;
@@ -99,6 +113,7 @@ pub fn set_game_state(json: String, my_uid: i32) {
         warn!("📛 Snapshot descartado (antiguo)");
     }
 }
+
 
 /* =======================================================================
    SISTEMA 1  – Aplica el snapshot que haya en memoria

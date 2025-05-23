@@ -10,14 +10,13 @@ pub struct JugadaPayload {
     pub jugada: Value,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TurnoData {
     pub numero_turno: i32,
     pub id_usuario: i32,
     pub jugada: Value,
     pub fecha_turno: Option<NaiveDateTime>,
 }
-
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Usuario {
     pub id_usuario: i32,
@@ -70,19 +69,21 @@ pub struct GolPayload {
     pub id_partida:  i32,
     pub id_goleador: i32,   // jugador que anotó
 }
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormacionData {
     pub id_usuario: i32,
     pub formacion : String,
     pub turno_inicio: i32,
 }
 
-#[derive(Serialize)]
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Snapshot {
-    pub marcador       : (i32, i32),
-    pub formaciones    : Vec<FormacionData>,
-    pub turnos         : Vec<TurnoData>,   // ya lo tienes
-    pub proximo_turno  : i32,
-    pub nombre_jugador_1: String, // 👈 nuevo
-    pub nombre_jugador_2: String, // 👈 nuevo// id_usuario al que le toca
+    pub marcador: (i32, i32),
+    pub formaciones: Vec<FormacionData>,
+    pub turnos: Vec<TurnoData>,
+    pub proximo_turno: Option<i32>, // ← CAMBIO AQUÍ
+    pub nombre_jugador_1: String,
+    pub nombre_jugador_2: String,
 }
+

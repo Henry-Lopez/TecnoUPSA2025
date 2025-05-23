@@ -3,6 +3,11 @@ import initWasm, * as wasm from "./rustball.js";
 let socket = null;
 let reconnectInterval = null;
 
+// Usa el dominio de producción
+const HOST = "rustball.lat";
+const BASE_URL = `https://${HOST}`;
+const WS_URL = `wss://${HOST}`;
+
 async function main() {
     const pid = localStorage.getItem("rb_pid");
     const uid = Number(localStorage.getItem("rb_uid"));
@@ -13,7 +18,7 @@ async function main() {
         return;
     }
 
-    const snap = await (await fetch(`/api/snapshot/${pid}`)).json();
+    const snap = await (await fetch(`${BASE_URL}/api/snapshot/${pid}`)).json();
     console.log("📦 Snapshot recibido:", snap);
 
     // Guardar IDs de jugadores
@@ -34,11 +39,13 @@ async function main() {
         }
     };
 
-    // Setea el snapshot
-    wasm.set_game_state(JSON.stringify(snap), uid);
-
-    // Conectar WebSocket
-    initWebSocket(pid, uid);
+    // 🧠 Solo conectar si ya están las formaciones
+    if (snap.estado === "playing" && snap.turno_actual !== null) {
+        wasm.set_game_state(JSON.stringify(snap), uid);
+        initWebSocket(pid, uid);
+    } else {
+        console.warn("⏳ Aún no se han elegido ambas formaciones. WebSocket no se conectará.");
+    }
 }
 
 function initWebSocket(partidaId, userId) {
@@ -46,17 +53,16 @@ function initWebSocket(partidaId, userId) {
         return; // evita doble conexión
     }
 
-    socket = new WebSocket(`ws://127.0.0.1:10000/ws/${partidaId}/${userId}`);
+    socket = new WebSocket(`${WS_URL}/ws/${partidaId}/${userId}`);
 
     socket.onopen = () => {
         console.log("🟢 WebSocket conectado");
-        clearInterval(reconnectInterval); // limpiar reconexión si estaba activa
+        clearInterval(reconnectInterval);
     };
 
     socket.onmessage = (event) => {
         const data = event.data;
         console.log("📨 Mensaje WS:", data);
-
         if (wasm && wasm.receive_ws_message) {
             wasm.receive_ws_message(data);
         }

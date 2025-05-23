@@ -42,14 +42,12 @@ pub fn send_goal_to_backend(
         // ——— WebAssembly: gloo-net + wasm-bindgen-futures ———
         #[cfg(target_arch = "wasm32")]
         spawn_local(async move {
-            // Construimos la Request y la desempaquetamos
-            let req = Request::post("/api/gol")
+            let _ = Request::post("https://rustball.lat/api/gol")
                 .header("Content-Type", "application/json")
                 .body(serde_json::to_string(&payload).unwrap())
-                .unwrap();
-
-            // Enviamos
-            let _ = req.send().await;
+                .unwrap()
+                .send()
+                .await;
         });
 
         // ——— Nativo (desktop): reqwest + tokio ———
@@ -57,7 +55,7 @@ pub fn send_goal_to_backend(
         {
             task::spawn(async move {
                 let _ = Client::new()
-                    .post("http://127.0.0.1:10000/api/gol")
+                    .post("https://rustball.lat/api/gol")
                     .json(&payload)
                     .send()
                     .await;
