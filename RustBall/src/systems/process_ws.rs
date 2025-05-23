@@ -1,13 +1,3 @@
-//! src/systems/process_ws.rs
-//! --------------------------------------------------------------
-//! 1.  En WASM abre el WebSocket  → ws://…/ws/{partida_id}/{user_id}
-//! 2.  Cuando llega "start" o "turno_finalizado":
-//!     • log               (⚡ WS …)
-//!     • fetch del snapshot
-//!     • set_game_state()  (dispara snapshot_apply_system)
-//!
-//! En escritorio mantiene el viejo mecanismo con WsInbox.
-//! --------------------------------------------------------------
 
 use bevy::prelude::*;
 use crate::resources::{WsInbox, AppState, BackendInfo};
@@ -58,7 +48,7 @@ mod wasm_ws {
 
                     // 2. Si es “start” o “turno_finalizado” ⇒ fetch + aplicar snapshot
                     if msg == "start" || msg == "turno_finalizado" {
-                        web_sys::console::log_1(&format!("⚡ WS: {msg}").into());
+                        web_sys::console::log_1(&format!("⚡ WSS: {msg}").into());
 
                         spawn_local(async move {
                             if let Ok(resp) = Request::get(&format!("/api/snapshot/{pid}")).send().await {

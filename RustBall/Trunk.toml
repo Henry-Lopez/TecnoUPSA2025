@@ -8,3 +8,7 @@ filehash = false   # (opcional) si no quieres hashes
 source = "assets"
 dest   = "assets"
 ignore = ["*.meta"]
+
+[[copy]]
+source = "bootstrap.js"
+dest = "bootstrap.js"

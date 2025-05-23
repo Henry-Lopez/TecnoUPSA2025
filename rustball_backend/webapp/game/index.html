@@ -25,7 +25,7 @@
       max-width:100%;max-height:100%
     }
   </style>
-<link rel="modulepreload" href="/game/rustball.js" crossorigin="anonymous" integrity="sha384-5hhSac2sKd8Jzo3RULXcOGj7EmjyKHJhYhPBn6sdeXnawvExesQlil+IR4LFV7F/"><link rel="preload" href="/game/rustball_bg.wasm" crossorigin="anonymous" integrity="sha384-hup8pH5Osxvkjue1b4VIPBLD1ynmKKPLxYNgUvk8JoWrX3m0GpBKhVME7IhdIZMC" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/game/rustball.js" crossorigin="anonymous" integrity="sha384-5hhSac2sKd8Jzo3RULXcOGj7EmjyKHJhYhPBn6sdeXnawvExesQlil+IR4LFV7F/"><link rel="preload" href="/game/rustball_bg.wasm" crossorigin="anonymous" integrity="sha384-cJ0BCOMrplHYnl23wPAc7Jm4KhsndMw8Q0+38WUPmzXKdf4N8DArYZlxMZQFJYuS" as="fetch" type="application/wasm"></head>
 
 <body>
 <!-- Mensaje inicial ------------------------------------------------------ -->
@@ -64,6 +64,8 @@
     } catch (_) { /* ignorar */ }
   }, { once:true });
 </script>
+<!-- ✅ Lógica WebSocket y snapshot -->
+<script type="module" src="bootstrap.js"></script>
 
 <script type="module">
 import init, * as bindings from '/game/rustball.js';

@@ -53,7 +53,7 @@ function initWebSocket(partidaId, userId) {
         return; // evita doble conexión
     }
 
-    socket = new WebSocket(`${WS_URL}/ws/${partidaId}/${userId}`);
+    socket = new WebSocket(`${WS_URL}/api/ws/${partidaId}/${userId}`);
 
     socket.onopen = () => {
         console.log("🟢 WebSocket conectado");
