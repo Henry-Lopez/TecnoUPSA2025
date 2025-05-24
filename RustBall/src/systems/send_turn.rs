@@ -37,16 +37,17 @@ pub fn send_turn_to_backend(
     backend        : Res<BackendInfo>,
     _turn_state    : Res<TurnState>,
     next_turn      : Res<NextTurn>,           // contador correcto
-    query          : Query<(&Transform, &PlayerDisk)>,
+    query          : Query<(Entity, &Transform, &PlayerDisk)>,
 ) {
     for _ in ev_end.read() {
         /* Serializar todas las piezas tal y como quedaron al finalizar */
         let piezas = query.iter()
-            .map(|(t, disk)| json!({
-                "id_usuario_real": disk.id_usuario_real,   // UID real
-                "x": t.translation.x,
-                "y": t.translation.y
-            }))
+            .map(|(entity, transform, disk)| json!({
+        "id": entity.index(),  // ✅ Ahora sí es el Entity ID
+        "id_usuario_real": disk.id_usuario_real,
+        "x": transform.translation.x,
+        "y": transform.translation.y
+    }))
             .collect::<Vec<_>>();
 
         /* Construir payload */
