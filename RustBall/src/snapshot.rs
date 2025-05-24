@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
-use crate::{FORMACIONES, INIT};
 use crate::resources::BackendInfo;
 use crate::{
     components::PlayerDisk,
@@ -65,13 +64,6 @@ pub struct SnapshotFromServer {
     pub nombre_jugador_2: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SnapshotWasmWrapper {
-    pub snapshot: BoardSnapshot,
-    pub formaciones: Vec<FormacionData>,
-    pub id_partida: i32,
-}
-
 /* ───────────── Buffer local (snapshot en cola) ───────────── */
 thread_local! {
     static APP_STATE: std::cell::RefCell<Option<(SnapshotFromServer, i32)>> =
@@ -84,30 +76,9 @@ static LAST_TURNO: std::sync::Mutex<i32> = std::sync::Mutex::new(0);
 pub fn set_game_state(json_str: &str, uid: i32) {
     web_sys::console::log_1(&"🧠 set_game_state() fue llamado".into());
 
-    match serde_json::from_str::<SnapshotWasmWrapper>(json_str) {
-        Ok(parsed) => {
-            web_sys::console::log_1(&"✅ SnapshotWasmWrapper parseado con éxito".into());
-
-            let snap = SnapshotFromServer {
-                estado: "playing".to_string(),
-                marcador: (0, 0),
-                formaciones: parsed.formaciones.clone(),
-                turnos: vec![],
-                proximo_turno: 1,
-                nombre_jugador_1: "Jugador 1".to_string(),
-                nombre_jugador_2: "Jugador 2".to_string(),
-            };
-
-            let backend_info = BackendInfo::new_with_snapshot(
-                parsed.id_partida,
-                uid,
-                parsed.formaciones[0].id_usuario,
-                parsed.formaciones[1].id_usuario,
-                Some(parsed.snapshot.clone()),
-            );
-
-            INIT.get().unwrap().lock().unwrap().replace(backend_info);
-            FORMACIONES.get().unwrap().lock().unwrap().replace(parsed.formaciones);
+    match serde_json::from_str::<SnapshotFromServer>(json_str) {
+        Ok(snap) => {
+            web_sys::console::log_1(&"✅ SnapshotFromServer parseado con éxito".into());
 
             if snap.estado != "playing" || snap.proximo_turno == 0 {
                 warn!("⏳ Partida aún no está en estado 'playing' o turno inválido. Ignorando snapshot.");

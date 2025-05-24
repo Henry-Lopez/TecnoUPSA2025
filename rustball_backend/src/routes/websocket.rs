@@ -117,6 +117,7 @@ async fn client_session(
                                         continue;
                                     }
                                 }
+
                                 if outbound.send(Message::Text(text)).await.is_err() {
                                     error!("❌ Error enviando a WS uid={}", uid);
                                     break;
@@ -151,10 +152,14 @@ async fn client_session(
             Ok(Message::Text(txt)) => {
                 debug!("📨 part={} uid={} → {}", partida, uid, txt);
                 let contenido_json: Value = serde_json::from_str(&txt).unwrap_or(json!(null));
+
+                // ✅ Envolver mensaje con tipo "snapshot" para uniformidad con el frontend
                 let mensaje = json!({
-                "uid_origen": uid,
-                "contenido": contenido_json
-            });
+                    "uid_origen": uid,
+                    "tipo": "snapshot",
+                    "contenido": contenido_json
+                });
+
                 if tx.send(mensaje.to_string()).is_err() {
                     warn!("📴 Nadie suscrito WS uid={}", uid);
                 }
