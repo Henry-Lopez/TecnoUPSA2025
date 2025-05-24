@@ -63,8 +63,7 @@
 
         let nuevo_turno = (max_turno_i64 as i32) + 1;
 
-        // ✅ NO se modifica la jugada, se guarda tal como llega
-        let jugada_json = payload.jugada.clone();
+        let jugada_json = payload.jugada.clone(); // ✅ sin modificar
 
         sqlx::query!(
         r#"
@@ -137,13 +136,13 @@
             .0;
 
         let msg = serde_json::json!({
-        "tipo": "turno_finalizado",
         "uid_origen": payload.id_usuario,
+        "tipo": "snapshot",
         "contenido": snap
     });
 
         if let Err(e) = tx.send(msg.to_string()) {
-            tracing::warn!("📢 No hay oyentes para mensaje WS: {}", e);
+            tracing::warn!("📢 No hay oyentes para snapshot: {}", e);
         }
 
         Ok(Json("Turno registrado"))
