@@ -19,18 +19,15 @@
     ) -> Result<Json<&'static str>, (StatusCode, String)> {
         tracing::info!("▶️  POST /jugada — Recibido payload: {:?}", payload);
 
-        // Iniciar una transacción
         let mut transaction = pool.begin().await.map_err(|e| {
             tracing::error!("❌ Error al iniciar transacción: {:?}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al iniciar transacción: {}", e))
         })?;
 
-        /* ─── 1. Validar turno_actual ───────────────────────────── */
-        tracing::debug!("🔍 Leyendo turno_actual desde la base de datos...");
         let turno_actual: Option<i32> = sqlx::query_scalar!(
-            "SELECT turno_actual FROM Partida WHERE id_partida = ?",
-            payload.id_partida
-        )
+        "SELECT turno_actual FROM Partida WHERE id_partida = ?",
+        payload.id_partida
+    )
             .fetch_one(&mut *transaction)
             .await
             .map_err(|e| {
@@ -38,14 +35,12 @@
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al leer turno_actual: {}", e))
             })?;
 
-        tracing::debug!(?turno_actual, "✅ turno_actual leído correctamente");
-
         if turno_actual != Some(payload.id_usuario) {
             tracing::warn!(
-                "⛔ Jugador {} intentó jugar fuera de turno. Turno actual: {:?}",
-                payload.id_usuario,
-                turno_actual
-            );
+            "⛔ Jugador {} intentó jugar fuera de turno. Turno actual: {:?}",
+            payload.id_usuario,
+            turno_actual
+        );
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!(
@@ -55,11 +50,10 @@
             ));
         }
 
-        /* ─── 2. Calcular nuevo número de turno ─────────────────── */
         let max_turno_i64: i64 = sqlx::query_scalar!(
-            "SELECT COALESCE(MAX(numero_turno), 0) FROM Turno WHERE id_partida = ?",
-            payload.id_partida
-        )
+        "SELECT COALESCE(MAX(numero_turno), 0) FROM Turno WHERE id_partida = ?",
+        payload.id_partida
+    )
             .fetch_one(&mut *transaction)
             .await
             .map_err(|e| {
@@ -68,44 +62,20 @@
             })?;
 
         let nuevo_turno = (max_turno_i64 as i32) + 1;
-        tracing::debug!(nuevo_turno, "✅ Nuevo número de turno calculado");
 
-        /* ─── 3. Enriquecer jugada con id_usuario_real ───────────── */
-        let piezas_json = payload
-            .jugada
-            .get("piezas")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| {
-                tracing::warn!("⚠️ Formato inválido: falta 'piezas' en jugada");
-                (
-                    StatusCode::BAD_REQUEST,
-                    "Formato de jugada inválido: falta 'piezas'".to_string(),
-                )
-            })?;
+        // ✅ NO se modifica la jugada, se guarda tal como llega
+        let jugada_json = payload.jugada.clone();
 
-        let jugada_json = json!({
-            "piezas": piezas_json.iter().map(|p| {
-                json!({
-                    "id_usuario_real": payload.id_usuario,
-                    "x": p.get("x").unwrap_or(&json!(null)),
-                    "y": p.get("y").unwrap_or(&json!(null))
-                })
-            }).collect::<Vec<_>>()
-        });
-
-        tracing::debug!("📦 Jugada enriquecida lista para insertar: {:?}", jugada_json);
-
-        /* ─── 4. Insertar turno ──────────────────────────────────── */
         sqlx::query!(
-            r#"
-            INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
-            VALUES (?, ?, ?, ?)
-            "#,
-            payload.id_partida,
-            nuevo_turno,
-            payload.id_usuario,
-            jugada_json
-        )
+        r#"
+        INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
+        VALUES (?, ?, ?, ?)
+        "#,
+        payload.id_partida,
+        nuevo_turno,
+        payload.id_usuario,
+        jugada_json
+    )
             .execute(&mut *transaction)
             .await
             .map_err(|e| {
@@ -124,13 +94,10 @@
                 }
             })?;
 
-        tracing::info!("✅ Turno #{nuevo_turno} insertado correctamente");
-
-        /* ─── 5. Calcular siguiente jugador ─────────────────────── */
         let (j1, j2) = sqlx::query!(
-            "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
-            payload.id_partida
-        )
+        "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
+        payload.id_partida
+    )
             .fetch_one(&mut *transaction)
             .await
             .map(|r| (r.id_jugador1, r.id_jugador2))
@@ -142,10 +109,10 @@
         let siguiente_turno = if payload.id_usuario == j1 { j2 } else { j1 };
 
         sqlx::query!(
-            "UPDATE Partida SET turno_actual = ? WHERE id_partida = ?",
-            siguiente_turno,
-            payload.id_partida
-        )
+        "UPDATE Partida SET turno_actual = ? WHERE id_partida = ?",
+        siguiente_turno,
+        payload.id_partida
+    )
             .execute(&mut *transaction)
             .await
             .map_err(|e| {
@@ -153,17 +120,11 @@
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al actualizar turno_actual: {}", e))
             })?;
 
-        tracing::info!("🔄 turno_actual actualizado a {}", siguiente_turno);
-
-        /* ─── 6. Confirmar transacción ───────────────────────────── */
         transaction.commit().await.map_err(|e| {
             tracing::error!("❌ Error al confirmar transacción: {:?}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al confirmar: {}", e))
         })?;
 
-        tracing::info!("✅ Transacción confirmada correctamente");
-
-        /* ─── 7. Generar snapshot y notificar ───────────────────── */
         let snap = super::get_snapshot(
             Path(payload.id_partida),
             Extension(pool.clone()),
@@ -175,12 +136,14 @@
             })?
             .0;
 
-        if tx.send("turno_finalizado".to_string()).is_err() {
-            tracing::warn!("📢 No hay oyentes para 'turno_finalizado'");
-        }
+        let msg = serde_json::json!({
+        "tipo": "turno_finalizado",
+        "uid_origen": payload.id_usuario,
+        "contenido": snap
+    });
 
-        if let Err(e) = tx.send(serde_json::to_string(&snap).unwrap_or_default()) {
-            tracing::warn!("📢 No hay oyentes para snapshot: {}", e);
+        if let Err(e) = tx.send(msg.to_string()) {
+            tracing::warn!("📢 No hay oyentes para mensaje WS: {}", e);
         }
 
         Ok(Json("Turno registrado"))
