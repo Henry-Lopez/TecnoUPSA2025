@@ -1,5 +1,5 @@
 //! routes/websocket.rs
-//! Mejorado: Canales por partida, validación, pings, snapshot etiquetado y filtro por uid
+//! Mejorado: Canales por partida, validación, pings, snapshot etiquetado, filtro por uid y snapshot en memoria
 
 use axum::{
     extract::{
@@ -26,6 +26,7 @@ use axum::extract::Path as AxumPath;
 use http_body_util::BodyExt;
 
 static PARTIDA_CHANNELS: OnceCell<Mutex<HashMap<i32, Sender<String>>>> = OnceCell::new();
+static LAST_SNAPSHOTS: OnceCell<Mutex<HashMap<i32, String>>> = OnceCell::new(); // 🆕
 
 fn get_or_create_channel(partida: i32) -> Sender<String> {
     let map = PARTIDA_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()));
@@ -37,6 +38,31 @@ fn get_or_create_channel(partida: i32) -> Sender<String> {
             tx
         })
         .clone()
+}
+
+// 🧹 Elimina el canal si ya no hay nadie conectado
+fn remove_channel_if_empty(partida: i32) {
+    if let Some(map) = PARTIDA_CHANNELS.get() {
+        let mut guard = map.lock().unwrap();
+        if let Some(tx) = guard.get(&partida) {
+            if tx.receiver_count() == 0 {
+                guard.remove(&partida);
+                info!("🧹 Canal de partida {} eliminado por estar vacío.", partida);
+            }
+        }
+    }
+}
+
+// 🧠 Guarda el último snapshot en memoria
+pub fn save_last_snapshot(partida: i32, snapshot_json: String) {
+    let map = LAST_SNAPSHOTS.get_or_init(|| Mutex::new(HashMap::new()));
+    map.lock().unwrap().insert(partida, snapshot_json);
+}
+
+// 📦 Obtiene el último snapshot de memoria (si existe)
+fn get_last_snapshot(partida: i32) -> Option<String> {
+    let map = LAST_SNAPSHOTS.get_or_init(|| Mutex::new(HashMap::new()));
+    map.lock().unwrap().get(&partida).cloned()
 }
 
 /// Handler de la ruta `/ws/:partida/:uid`
@@ -77,7 +103,6 @@ async fn client_session(
     let mut ping_interval = time::interval(time::Duration::from_secs(30));
 
     let forward = tokio::spawn({
-        let pool = pool.clone();
         async move {
             loop {
                 tokio::select! {
@@ -89,7 +114,7 @@ async fn client_session(
                             Ok(text) => {
                                 if let Ok(json_msg) = serde_json::from_str::<Value>(&text) {
                                     if json_msg["uid_origen"] == json!(uid) {
-                                        continue; // no reenviar a sí mismo
+                                        continue;
                                     }
                                 }
                                 if outbound.send(Message::Text(text)).await.is_err() {
@@ -99,13 +124,15 @@ async fn client_session(
                             }
                             Err(RecvError::Lagged(n)) => {
                                 warn!("⚠️  WS lag ({} mensajes perdidos) uid={}", n, uid);
-                                if let Ok(snapshot_str) = get_snapshot_json(partida, pool.clone()).await {
+                                if let Some(snapshot_str) = get_last_snapshot(partida) {
                                     let snapshot_wrapped = json!({
                                         "uid_origen": 0,
                                         "tipo": "snapshot",
                                         "contenido": serde_json::from_str::<Value>(&snapshot_str).unwrap_or(json!({}))
                                     });
                                     let _ = outbound.send(Message::Text(snapshot_wrapped.to_string())).await;
+                                } else {
+                                    warn!("📭 No hay snapshot en memoria para partida={}", partida);
                                 }
                             }
                             Err(RecvError::Closed) => {
@@ -123,8 +150,12 @@ async fn client_session(
         match result {
             Ok(Message::Text(txt)) => {
                 debug!("📨 part={} uid={} → {}", partida, uid, txt);
-                let json = format!(r#"{{"uid_origen":{},"contenido":{}}}"#, uid, txt);
-                if tx.send(json).is_err() {
+                let contenido_json: Value = serde_json::from_str(&txt).unwrap_or(json!(null));
+                let mensaje = json!({
+                "uid_origen": uid,
+                "contenido": contenido_json
+            });
+                if tx.send(mensaje.to_string()).is_err() {
                     warn!("📴 Nadie suscrito WS uid={}", uid);
                 }
             }
@@ -142,8 +173,11 @@ async fn client_session(
 
     forward.abort();
     info!("🔌 WS-CLOSE partida={} uid={}", partida, uid);
+    remove_channel_if_empty(partida); // ✅ limpieza al desconectarse
 }
 
+// ❌ Ya no se usa: ahora usamos snapshot en memoria
+#[allow(dead_code)]
 async fn get_snapshot_json(partida: i32, pool: MySqlPool) -> Result<String, ()> {
     let response: Response = get_snapshot(AxumPath(partida), Extension(pool))
         .await

@@ -70,10 +70,21 @@ async fn main() {
     info!("📁 Archivos estáticos servidos desde: {:?}", static_dir);
 
     /* ─── Middlewares CORS + Trace ───────────────────────────── */
-    let cors = CorsLayer::new()
-        .allow_origin("https://rustball.lat".parse::<HeaderValue>().unwrap())
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let environment = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".into());
+
+    let cors = if environment == "production" {
+        info!("🌍 CORS restringido a: https://rustball.lat");
+        CorsLayer::new()
+            .allow_origin("https://rustball.lat".parse::<HeaderValue>().unwrap())
+            .allow_methods(Any)
+            .allow_headers(Any)
+    } else {
+        info!("🌎 CORS en modo abierto (desarrollo)");
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    };
 
     let app = Router::new()
         .nest("/api", api)
@@ -93,7 +104,6 @@ async fn main() {
             std::process::exit(1);
         });
 
-    // Escuchar en todas las interfaces para Render
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("🟢 Servidor escuchando en: http://{}", addr);
 
@@ -101,3 +111,5 @@ async fn main() {
         error!("❌ Error al iniciar el servidor: {}", e);
     }
 }
+
+

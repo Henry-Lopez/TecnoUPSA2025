@@ -79,11 +79,13 @@ pub struct FormacionData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Snapshot {
+    pub estado: String, // ← NUEVO
     pub marcador: (i32, i32),
     pub formaciones: Vec<FormacionData>,
     pub turnos: Vec<TurnoData>,
-    pub proximo_turno: Option<i32>, // ← CAMBIO AQUÍ
+    pub proximo_turno: Option<i32>,
     pub nombre_jugador_1: String,
     pub nombre_jugador_2: String,
 }
+
 
