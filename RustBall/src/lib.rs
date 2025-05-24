@@ -21,7 +21,6 @@ mod snapshot;
 use bevy::asset::AssetMetaCheck;
 use once_cell::sync::OnceCell;
 use powerup::*;
-use std::sync::Mutex;
 
 use crate::resources::WsInbox;
 
@@ -37,6 +36,16 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use crate::components::{PlayerDisk, PowerUpLabel};
 use crate::events::{FormationChosenEvent, TurnFinishedEvent};
 use crate::zone::apply_zone_effects;
+
+
+#[cfg(target_arch = "wasm32")]
+use std::sync::Mutex;
+
+#[cfg(target_arch = "wasm32")]
+pub static INIT: once_cell::sync::OnceCell<Mutex<Option<crate::resources::BackendInfo>>> = once_cell::sync::OnceCell::new();
+
+#[cfg(target_arch = "wasm32")]
+pub static FORMACIONES: once_cell::sync::OnceCell<Mutex<Option<Vec<crate::snapshot::FormacionData>>>> = once_cell::sync::OnceCell::new();
 
 // ──────────────────────────── WASM entry ───────────────────────────
 #[cfg(target_arch = "wasm32")]
@@ -268,6 +277,12 @@ pub fn main_internal() {
         }
     }*/
 
+    #[cfg(target_arch = "wasm32")]
+    {
+        INIT.set(Mutex::new(None)).ok();
+        FORMACIONES.set(Mutex::new(None)).ok();
+    }
+
     // --------------------------------------------------------------------
     //  IMPORTA LOS SystemSet QUE ACABAS DE CREAR
     // --------------------------------------------------------------------
@@ -371,6 +386,14 @@ pub fn main_internal() {
                 load_game_over_assets,
             ),
         );
+
+    // 🔁 Carga los datos del backend (snapshot, uid, pid) desde el OnceCell
+    #[cfg(target_arch = "wasm32")]
+    use crate::systems::load_backend_info_if_available;
+
+    #[cfg(target_arch = "wasm32")]
+    app.add_systems(OnEnter(AppState::FormationSelection), load_backend_info_if_available);
+
 
     // ───────── STATE: FormationSelection ────────────────────────────────
     app.add_systems(

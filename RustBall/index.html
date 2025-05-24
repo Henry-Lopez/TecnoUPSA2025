@@ -13,8 +13,6 @@
   <!-- Copiar bootstrap.js al dist ----------------------------- -->
   <link data-trunk rel="copy-file" href="bootstrap.js" />
 
-
-
   <style>
     html,body{
       margin:0;padding:0;height:100%;background:#121212;
@@ -38,27 +36,37 @@
 <!-- Espera a que Trunk cargue Wasm y exponga window.wasmBindings --------- -->
 <script type="module">
   addEventListener("TrunkApplicationStarted", () => {
-    const { start_game } = window.wasmBindings;      // exportada en Rust
+    const { start_game } = window.wasmBindings;
     const pid = Number(localStorage.getItem("rb_pid") || 0);
     const uid = Number(localStorage.getItem("rb_uid") || 0);
     console.log("🎮 Juego iniciado – partida:", pid, "usuario:", uid);
-    start_game(pid, uid);                            // arranca Bevy
+    start_game(pid, uid);
   });
 </script>
 
 <!-- Primer clic: oculta mensaje, enfoca canvas y reanuda audio ---------- -->
 <script>
   document.addEventListener("click", () => {
-    /* Ocultar texto de inicio */
-    document.getElementById("start-message")?.remove();
+    // 🔒 Si ya hay un canvas, solo enfocar y salir
+    const existingCanvas = document.querySelector("canvas");
+    if (existingCanvas) {
+      existingCanvas.setAttribute("tabindex", "0");
+      existingCanvas.focus();
+      console.log("🛡️ Canvas ya presente, evitando duplicación.");
+      return;
+    }
 
-    /* Espera un frame → Bevy crea su canvas → enfócalo */
+    // Ocultar mensaje de inicio
+    const msg = document.getElementById("start-message");
+    if (msg) msg.remove();
+
+    // Esperar un frame y enfocar canvas
     requestAnimationFrame(() => {
       const c = document.querySelector("canvas");
       if (c){ c.setAttribute("tabindex","0"); c.focus(); }
     });
 
-    /* Reactivar AudioContext suspendido por el navegador */
+    // Reactivar AudioContext
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (AC){
@@ -68,6 +76,7 @@
     } catch (_) { /* ignorar */ }
   }, { once:true });
 </script>
+
 <!-- ✅ Lógica WebSocket y snapshot -->
 <script type="module" src="bootstrap.js"></script>
 </body>

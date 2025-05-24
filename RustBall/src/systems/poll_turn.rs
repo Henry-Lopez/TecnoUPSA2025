@@ -104,7 +104,7 @@ pub fn handle_turn_finished_event(
                     if let Ok(resp) = Request::get(&format!("/api/snapshot/{}", pid)).send().await {
                         if let Ok(snapshot) = resp.json::<SnapshotFromServer>().await {
                             let json = serde_json::to_string(&snapshot).unwrap();
-                            set_game_state(json, uid);
+                            set_game_state(&json, uid); // ✅ ← uso correcto con referencia
                         }
                     }
                 });

@@ -19,27 +19,27 @@ pub enum GameSets {
 
 // ────────────────────────── MÓDULOS PÚBLICOS ───────────────────────────
 pub mod goal_systems;
-pub mod input_systems;          // ← mantiene lógica auxiliar (sin turno)
+pub mod input_systems;
 pub mod turn_systems;
 pub mod ui_systems;
 pub mod visual_systems;
 pub mod reset_for_formation;
-pub mod poll_turn;              // el polling es público
+pub mod poll_turn;
 
 // ────────────────────────── MÓDULOS PRIVADOS ──────────────────────────
-mod random_event_system;        // eventos aleatorios
-mod backend_setup;              // lee localStorage → BackendInfo
-mod send_goal;                  // POST /api/gol
-mod send_formacion;             // POST /api/formacion
-mod send_turn;                  // POST /api/jugada
-mod apply_snapshot;             // aplica la foto del tablero
-mod process_ws;                 // procesa mensajes WebSocket entrantes
+mod random_event_system;
+mod backend_setup;
+mod send_goal;
+mod send_formacion;
+mod send_turn;
+mod apply_snapshot;
+mod process_ws;
 
 // ────────────────────────── RE-EXPORTES ÚTILES ─────────────────────────
 // Basta con:   use systems::*;
 
 pub use random_event_system::trigger_random_event_system;
-pub use backend_setup::insert_backend_info;
+pub use backend_setup::{insert_backend_info, load_backend_info_if_available}; // ✅ ← añadido aquí
 
 // — Envíos al backend ───────────────────────────────────────────────────
 pub use send_goal::send_goal_to_backend;
@@ -72,5 +72,4 @@ pub use turn_systems::*;
 pub use ui_systems::*;
 pub use visual_systems::*;
 pub use reset_for_formation::*;
-// etiquetas SystemSet
 pub use turn_systems::CheckTurnEndSet;

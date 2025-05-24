@@ -22,7 +22,23 @@ async function main() {
         snap = await res.json();
         console.log("📦 Snapshot recibido:", snap);
 
-        const formaciones = snap.formaciones || [];
+        // 🔎 Verificación explícita de estructura
+        if (!snap.snapshot || !Array.isArray(snap.snapshot.piezas)) {
+            console.error("❌ Estructura inválida: faltan piezas en snapshot.");
+            return;
+        }
+
+        if (!Array.isArray(snap.formaciones)) {
+            console.error("❌ Estructura inválida: 'formaciones' no es un arreglo.");
+            return;
+        }
+
+        if (typeof snap.id_partida !== "number") {
+            console.error("❌ Estructura inválida: 'id_partida' no es número.");
+            return;
+        }
+
+        const formaciones = snap.formaciones;
         if (formaciones.length < 2) {
             console.warn("⚠️ Aún no hay 2 formaciones.");
             return;
@@ -45,6 +61,8 @@ async function main() {
     }
 
     await initWasm();
+    console.log("✅ WASM inicializado");
+    console.log("🧠 Llamando a set_game_state...");
 
     globalThis.sendOverWS = function (msg) {
         if (socket && socket.readyState === WebSocket.OPEN) {
@@ -56,7 +74,13 @@ async function main() {
     };
 
     if (snap.estado === "playing" && snap.proximo_turno != null) {
-        wasm.set_game_state(JSON.stringify(snap), uid);
+        try {
+            wasm.set_game_state(JSON.stringify(snap), uid);
+            console.log("🧠 set_game_state ejecutado correctamente");
+        } catch (e) {
+            console.error("❌ Error en set_game_state:", e);
+        }
+
         initWebSocket(pid, uid);
     } else {
         console.warn("⏳ Esperando a que ambos jugadores elijan formación...");

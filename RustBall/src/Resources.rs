@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use crate::events::RandomEvent;
 use crate::snapshot::SnapshotFromServer;
+use crate::snapshot::BoardSnapshot;
 
 /* ─────────── Turno / Marcador ─────────── */
 
@@ -85,23 +86,52 @@ pub struct EventControl {
 }
 
 /* ─────────── Info de backend ─────────── */
-
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Clone, Debug)]
 pub struct BackendInfo {
     pub partida_id: i32,
-    pub my_uid:     i32,
-    pub id_left:    i32,
-    pub id_right:   i32,
+    pub id_left: i32,
+    pub id_right: i32,
+    pub my_uid: i32,
+    pub snapshot_actual: Option<BoardSnapshot>,
 }
 
 impl BackendInfo {
+    // Constructor normal (sin snapshot)
     pub fn new(partida_id: i32, my_uid: i32, id_left: i32, id_right: i32) -> Self {
-        Self { partida_id, my_uid, id_left, id_right }
+        Self {
+            partida_id,
+            my_uid,
+            id_left,
+            id_right,
+            snapshot_actual: None,
+        }
     }
-    pub fn i_am_left (&self) -> bool { self.my_uid == self.id_left  }
-    pub fn i_am_right(&self) -> bool { self.my_uid == self.id_right }
-}
 
+    // Constructor con snapshot (opcional)
+    pub fn new_with_snapshot(
+        partida_id: i32,
+        my_uid: i32,
+        id_left: i32,
+        id_right: i32,
+        snapshot: Option<BoardSnapshot>,
+    ) -> Self {
+        Self {
+            partida_id,
+            my_uid,
+            id_left,
+            id_right,
+            snapshot_actual: snapshot,
+        }
+    }
+
+    pub fn i_am_left(&self) -> bool {
+        self.my_uid == self.id_left
+    }
+
+    pub fn i_am_right(&self) -> bool {
+        self.my_uid == self.id_right
+    }
+}
 /* ─────────── Snapshot más reciente (compartido) ─────────── */
 
 #[derive(Resource, Default)]

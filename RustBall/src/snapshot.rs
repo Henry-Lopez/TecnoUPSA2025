@@ -1,23 +1,14 @@
-//! --------------------------------------------------------------
-//!  Manejo de snapshots (frontend)
-//!
-//!  ▸ Aplica tablero, marcador y jugador en turno.
-//!  ▸ Mantiene el recurso NextTurn (1-N) que el frontend
-//!    enviará en POST /api/jugada.
-//!  ▸ **NUEVO**: si llega un mensaje "turno_finalizado" o "start"
-//!    por WebSocket se hace un fetch /api/snapshot/{pid} y se aplica.
-//! --------------------------------------------------------------
-
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
-
+use crate::{FORMACIONES, INIT};
+use crate::resources::BackendInfo;
 use crate::{
     components::PlayerDisk,
     formation::spawn_formation_for,
     resources::{
-        AppState, BackendInfo, CurrentPlayerId, PlayerNames, Scores, TurnState,
-        UltimoTurnoAplicado, WsInbox,               // 👈 NEW import (bandeja WS)
+        AppState, CurrentPlayerId, PlayerNames, Scores, TurnState,
+        UltimoTurnoAplicado, WsInbox,
     },
     systems::apply_board_snapshot,
 };
@@ -65,13 +56,20 @@ pub struct TurnoData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SnapshotFromServer {
-    pub estado: String,            // 👈 Agregado
+    pub estado: String,
     pub marcador: (u32, u32),
     pub formaciones: Vec<FormacionData>,
     pub turnos: Vec<TurnoData>,
     pub proximo_turno: i32,
     pub nombre_jugador_1: String,
     pub nombre_jugador_2: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SnapshotWasmWrapper {
+    pub snapshot: BoardSnapshot,
+    pub formaciones: Vec<FormacionData>,
+    pub id_partida: i32,
 }
 
 /* ───────────── Buffer local (snapshot en cola) ───────────── */
@@ -83,41 +81,61 @@ static LAST_TURNO: std::sync::Mutex<i32> = std::sync::Mutex::new(0);
 
 /* ───────────── Callback JS → Rust ───────────── */
 #[wasm_bindgen]
-pub fn set_game_state(json: String, my_uid: i32) {
-    let snap: SnapshotFromServer = match serde_json::from_str(&json) {
-        Ok(s) => s,
-        Err(_) => {
-            error!("❌ snapshot JSON malformado");
-            return;
+pub fn set_game_state(json_str: &str, uid: i32) {
+    web_sys::console::log_1(&"🧠 set_game_state() fue llamado".into());
+
+    match serde_json::from_str::<SnapshotWasmWrapper>(json_str) {
+        Ok(parsed) => {
+            web_sys::console::log_1(&"✅ SnapshotWasmWrapper parseado con éxito".into());
+
+            let snap = SnapshotFromServer {
+                estado: "playing".to_string(),
+                marcador: (0, 0),
+                formaciones: parsed.formaciones.clone(),
+                turnos: vec![],
+                proximo_turno: 1,
+                nombre_jugador_1: "Jugador 1".to_string(),
+                nombre_jugador_2: "Jugador 2".to_string(),
+            };
+
+            let backend_info = BackendInfo::new_with_snapshot(
+                parsed.id_partida,
+                uid,
+                parsed.formaciones[0].id_usuario,
+                parsed.formaciones[1].id_usuario,
+                Some(parsed.snapshot.clone()),
+            );
+
+            INIT.get().unwrap().lock().unwrap().replace(backend_info);
+            FORMACIONES.get().unwrap().lock().unwrap().replace(parsed.formaciones);
+
+            if snap.estado != "playing" || snap.proximo_turno == 0 {
+                warn!("⏳ Partida aún no está en estado 'playing' o turno inválido. Ignorando snapshot.");
+                return;
+            }
+
+            let mut last = LAST_TURNO.lock().unwrap();
+
+            info!(
+                "📥 Recibido snapshot turno {} (último aplicado {})",
+                snap.proximo_turno, *last
+            );
+
+            if snap.proximo_turno > *last {
+                *last = snap.proximo_turno;
+                APP_STATE.with(|c| *c.borrow_mut() = Some((snap, uid)));
+                info!("✅ Snapshot en cola para ser aplicado");
+            } else {
+                warn!("📛 Snapshot descartado (antiguo)");
+            }
         }
-    };
-
-    // Validación extra: solo continuar si el snapshot indica que la partida está lista
-    if snap.estado != "playing" || snap.proximo_turno == 0 {
-        warn!("⏳ Partida aún no está en estado 'playing' o turno inválido. Ignorando snapshot.");
-        return;
-    }
-
-    let mut last = LAST_TURNO.lock().unwrap();
-
-    info!(
-        "📥 Recibido snapshot turno {} (último aplicado {})",
-        snap.proximo_turno, *last
-    );
-
-    if snap.proximo_turno > *last {
-        *last = snap.proximo_turno;
-        APP_STATE.with(|c| *c.borrow_mut() = Some((snap, my_uid)));
-        info!("✅ Snapshot en cola para ser aplicado");
-    } else {
-        warn!("📛 Snapshot descartado (antiguo)");
+        Err(e) => {
+            web_sys::console::error_1(&format!("❌ Error al parsear snapshot JSON: {:?}", e).into());
+        }
     }
 }
 
-
-/* =======================================================================
-   SISTEMA 1  – Aplica el snapshot que haya en memoria
-   ======================================================================= */
+/* ======================================================================= */
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot_apply_system(
     mut commands         : Commands,
@@ -132,32 +150,28 @@ pub fn snapshot_apply_system(
     backend_info         : Res<BackendInfo>,
     player_names         : Option<Res<PlayerNames>>,
 ) {
-    /* 0. ¿hay snapshot pendiente? */
     let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else { return; };
 
     info!("🔄 Aplicando snapshot – turno {}", snap.proximo_turno);
 
-    /* 1. nombres */
     commands.insert_resource(PlayerNames {
         left_name : snap.nombre_jugador_1.clone(),
         right_name: snap.nombre_jugador_2.clone(),
     });
 
-    /* 2. duplicado */
     if snap.proximo_turno == ultimo_turno.0 {
         return;
     }
     ultimo_turno.0 = snap.proximo_turno;
 
-    /* 3. tablero o formaciones */
     if let Some(last) = snap.turnos.last() {
         if let Ok(board_raw) = serde_json::from_value::<BoardSnapshot>(last.jugada.clone()) {
             let mapped = BoardSnapshot {
                 piezas: board_raw.piezas.into_iter().map(|p| PiezaPos {
-                    id              : p.id,
-                    x               : p.x,
-                    y               : p.y,
-                    id_usuario_real : p.id_usuario_real,
+                    id: p.id,
+                    x: p.x,
+                    y: p.y,
+                    id_usuario_real: p.id_usuario_real,
                 }).collect(),
             };
 
@@ -180,7 +194,6 @@ pub fn snapshot_apply_system(
         commands.insert_resource(NextTurn(1));
     }
 
-    /* 4. marcador y turn-state */
     *scores = Scores { left: snap.marcador.0, right: snap.marcador.1 };
 
     ts.in_motion        = false;
@@ -193,26 +206,17 @@ pub fn snapshot_apply_system(
     commands.insert_resource(MyTurn(is_my_turn));
     info!("🕑 MyTurn = {}", is_my_turn);
 
-    /* 5. Asegurar estado InGame */
     if *state != AppState::InGame && snap.proximo_turno != 0 {
         next_state.set(AppState::InGame);
     }
 }
 
-/* =======================================================================
-   SISTEMA 2  – Dispara un fetch snapshot cuando llega un msg WS
-   ======================================================================= */
+/* ======================================================================= */
 #[cfg(target_arch = "wasm32")]
-pub fn fetch_snapshot_on_ws_message(
-    mut inbox : ResMut<WsInbox>,         // Bandeja donde otros sistemas meten texto WS
-) {
-    // Ya no hace falta – solo limpiamos la bandeja para que no crezca.
+pub fn fetch_snapshot_on_ws_message(mut inbox : ResMut<WsInbox>) {
     inbox.0.clear();
 }
 
-/* =======================================================================
-   SISTEMA 3  – Polling solo mientras se elige formación (sin WS todavía)
-   ======================================================================= */
 #[cfg(target_arch = "wasm32")]
 pub fn poll_snapshot_when_forming(
     time  : Res<Time>,
@@ -234,9 +238,7 @@ pub fn poll_snapshot_when_forming(
             if let Ok(resp) = Request::get(&format!("/api/snapshot/{pid}")).send().await {
                 if let Ok(snap) = resp.json::<SnapshotFromServer>().await {
                     if snap.proximo_turno != 0 {
-                        crate::snapshot::set_game_state(
-                            serde_json::to_string(&snap).unwrap(), uid,
-                        );
+                        crate::snapshot::set_game_state(&serde_json::to_string(&snap).unwrap(), uid);
                     }
                 }
             }
