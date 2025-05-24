@@ -4,7 +4,6 @@ let socket = null;
 let reconnectAttempts = 0;
 const maxReconnectAttempts = 5;
 
-// URL WebSocket dinámica según entorno
 const WS_URL = (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.host;
 
 async function main() {
@@ -16,28 +15,37 @@ async function main() {
         return;
     }
 
-    // 🔍 1. Obtener snapshot desde backend
+    // 🔍 Obtener snapshot
     let snap;
     try {
         const res = await fetch(`/api/snapshot/${pid}`);
         snap = await res.json();
         console.log("📦 Snapshot recibido:", snap);
 
-        const f1 = snap.formaciones[0]?.id_usuario || 0;
-        const f2 = snap.formaciones[1]?.id_usuario || 0;
+        const formaciones = snap.formaciones || [];
+        if (formaciones.length < 2) {
+            console.warn("⚠️ Aún no hay 2 formaciones.");
+            return;
+        }
+
+        const f1 = formaciones[0].id_usuario || 0;
+        const f2 = formaciones[1].id_usuario || 0;
+
+        if (f1 === 0 || f2 === 0) {
+            console.warn("⚠️ IDs inválidos en formaciones.");
+            return;
+        }
 
         localStorage.setItem("rb_id_left", Math.min(f1, f2));
         localStorage.setItem("rb_id_right", Math.max(f1, f2));
     } catch (e) {
-        console.error("❌ No se pudo obtener snapshot:", e);
+        console.error("❌ Error al obtener snapshot:", e);
         alert("Error al obtener el estado de la partida.");
         return;
     }
 
-    // ✅ 2. Solo después de cargar IDs, inicializar WASM
     await initWasm();
 
-    // 📨 3. Función global para enviar mensajes desde WASM
     globalThis.sendOverWS = function (msg) {
         if (socket && socket.readyState === WebSocket.OPEN) {
             const wrapped = JSON.stringify({ uid_origen: uid, contenido: msg });
@@ -47,7 +55,6 @@ async function main() {
         }
     };
 
-    // 🔗 4. Conectar WebSocket solo si ya está todo listo
     if (snap.estado === "playing" && snap.proximo_turno != null) {
         wasm.set_game_state(JSON.stringify(snap), uid);
         initWebSocket(pid, uid);
@@ -71,15 +78,12 @@ function initWebSocket(partidaId, userId) {
             const data = JSON.parse(event.data);
             const uidLocal = Number(localStorage.getItem("rb_uid"));
 
-            if (data.uid_origen && data.uid_origen === uidLocal) return;
+            if (data.uid_origen === uidLocal) return;
 
             if (data.tipo === "snapshot") {
                 console.log("📦 Snapshot reenviado recibido");
                 wasm.set_game_state(JSON.stringify(data.contenido), uidLocal);
-                return;
-            }
-
-            if (wasm && wasm.receive_ws_message) {
+            } else if (wasm.receive_ws_message) {
                 const contenido = typeof data.contenido === "string"
                     ? data.contenido
                     : JSON.stringify(data.contenido);
@@ -98,7 +102,6 @@ function initWebSocket(partidaId, userId) {
         console.warn("🔴 WebSocket cerrado.");
         if (reconnectAttempts < maxReconnectAttempts) {
             reconnectAttempts++;
-            console.log("🔁 Reintentando conexión WebSocket...");
             setTimeout(() => initWebSocket(partidaId, userId), 3000);
         } else {
             alert("❌ El servidor no está disponible. Intenta más tarde.");
