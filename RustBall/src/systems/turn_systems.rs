@@ -200,36 +200,31 @@ pub fn fire_selected_disk(
 // --------------------------------------------------------------
 
 pub fn check_turn_end(
-    mut turn_state:  ResMut<TurnState>,
-    velocities:      Query<&Velocity, With<RigidBody>>,
-    mut commands:    Commands,
-    controlled:      Query<Entity, With<TurnControlled>>,
-    mut sprites:     Query<&mut Sprite>,
+    mut turn_state: ResMut<TurnState>,
+    velocities: Query<&Velocity, With<RigidBody>>,
+    mut commands: Commands,
+    controlled: Query<Entity, With<TurnControlled>>,
+    mut sprites: Query<&mut Sprite>,
     mut powerup_control: ResMut<PowerUpControl>,
-    mut event_control:   ResMut<EventControl>,
-    mut turn_finished:   EventWriter<TurnFinishedEvent>,
+    mut event_control: ResMut<EventControl>,
+    mut turn_finished: EventWriter<TurnFinishedEvent>,
 ) {
-    // 1) Si no estamos en movimiento, salimos
+    // ✅ Seguridad: salimos si ya no estamos en movimiento
     if !turn_state.in_motion {
         return;
     }
 
-    // 2) ¿Al menos una ficha aún se mueve?
+    // ✅ Seguridad: esperamos a que todas las fichas se detengan
     const THRESHOLD: f32 = 0.5;
-    if velocities
-        .iter()
-        .any(|v| v.linvel.length_squared() >= THRESHOLD)
-    {
+    if velocities.iter().any(|v| v.linvel.length_squared() >= THRESHOLD) {
         return;
     }
 
-    // 3) Se detuvieron todas → termina el movimiento
+    // ✅ Confirmación de fin de movimiento
     turn_state.in_motion = false;
+    commands.insert_resource(MyTurn(false)); // 📴 Desactiva input local
 
-    //    ⏸ Deshabilitar input local hasta que llegue el próximo snapshot
-    commands.insert_resource(MyTurn(false));
-
-    // 4) Quitar selección y devolver color
+    // 🎨 Quitar selección visual y control
     for entity in &controlled {
         if let Ok(mut sprite) = sprites.get_mut(entity) {
             sprite.color = Color::WHITE;
@@ -238,20 +233,21 @@ pub fn check_turn_end(
     }
     turn_state.selected_entity = None;
 
-    // 5) Contadores de power-ups / eventos
+    // 🔢 Contadores
     if !event_control.event_active {
         event_control.turns_since_last += 1;
     }
     powerup_control.turns_since_last += 1;
 
+    // 🪵 Log importante de control
     info!(
-        "🔁 Fin de turno — PU: {}, EV: {}",
+        "🔁 Fin de turno — PU: {}, EV: {} — TurnFinishedEvent ENVIADO",
         powerup_control.turns_since_last,
         event_control.turns_since_last
     );
 
-    // 6) Notificamos que el turno terminó.
-    //    El backend enviará el próximo snapshot con el nuevo turno_actual.
+    // 🚨 ¡Aquí puede disparar múltiples veces si hay sistemas duplicados!
     turn_finished.send(TurnFinishedEvent);
 }
+
 

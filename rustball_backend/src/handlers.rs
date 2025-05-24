@@ -63,7 +63,7 @@
 
         let nuevo_turno = (max_turno_i64 as i32) + 1;
 
-        let jugada_json = payload.jugada.clone(); // ✅ sin modificar
+        let jugada_json = payload.jugada.clone();
 
         sqlx::query!(
         r#"
@@ -119,6 +119,33 @@
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al actualizar turno_actual: {}", e))
             })?;
 
+        // 🔍 Verificación post-insert de turno_actual
+        let turno_actual_actualizado: Result<Option<i32>, _> = sqlx::query_scalar!(
+    "SELECT turno_actual FROM Partida WHERE id_partida = ?",
+    payload.id_partida
+)
+            .fetch_one(&mut *transaction)
+            .await;
+
+        match turno_actual_actualizado {
+            Ok(Some(actual)) if actual == payload.id_usuario => {
+                tracing::error!(
+            "⚠️ turno_actual NO SE ACTUALIZÓ: sigue siendo {} en la partida {}",
+            actual,
+            payload.id_partida
+        );
+            }
+            Ok(_) => { /* turno_actual está bien actualizado */ }
+            Err(e) => {
+                tracing::error!(
+            "❌ Error al reconsultar turno_actual para partida {}: {:?}",
+            payload.id_partida,
+            e
+        );
+            }
+        }
+
+
         transaction.commit().await.map_err(|e| {
             tracing::error!("❌ Error al confirmar transacción: {:?}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al confirmar: {}", e))
@@ -147,6 +174,7 @@
 
         Ok(Json("Turno registrado"))
     }
+
 
 
     // 2. GET /estado/:id_partida

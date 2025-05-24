@@ -15,22 +15,30 @@ pub fn reset_for_formation(
 ) {
     // 🧹 Eliminar jugadores
     for entity in &disks {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
 
     // 🧹 Eliminar menú de selección anterior
     for entity in &menus {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
 
     // 🧹 Eliminar pelotas
     for entity in &balls {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
 
     // 🧹 Eliminar arcos
     for entity in &goals {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
 
     // 🔄 Resetear formaciones anteriores

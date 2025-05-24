@@ -39,12 +39,16 @@ mod process_ws;
 // Basta con:   use systems::*;
 
 pub use random_event_system::trigger_random_event_system;
-pub use backend_setup::{insert_backend_info, load_backend_info_if_available}; // ✅ ← añadido aquí
+pub use backend_setup::{insert_backend_info, load_backend_info_if_available};
 
 // — Envíos al backend ───────────────────────────────────────────────────
 pub use send_goal::send_goal_to_backend;
 pub use send_formacion::send_formacion_to_backend;
-pub use send_turn::send_turn_to_backend;
+pub use send_turn::{
+    send_turn_to_backend,
+    maybe_send_pending_turn,  // ✅ NUEVO
+    PendingTurn,              // ✅ NUEVO
+};
 
 // — Snapshot al tablero ────────────────────────────────────────────────
 pub use apply_snapshot::apply_board_snapshot;

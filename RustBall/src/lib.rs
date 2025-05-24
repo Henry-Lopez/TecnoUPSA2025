@@ -288,6 +288,7 @@ pub fn main_internal() {
     // --------------------------------------------------------------------
     use crate::snapshot::ApplySnapshotSet;   // systems que aplican snapshot
     use crate::systems::CheckTurnEndSet;     // systems que cierran un turno
+    use crate::systems::{maybe_send_pending_turn, PendingTurn}; // ✅ ya importados
 
     // --------------------------------------------------------------------
     //  CREA Y CONFIGURA LA APLICACIÓN
@@ -305,6 +306,7 @@ pub fn main_internal() {
         .insert_resource(PowerUpControl::default())
         .insert_resource(EventControl::default())
         .insert_resource(snapshot::MyTurn::default())
+        .insert_resource(PendingTurn::default())
         .insert_resource(CurrentPlayerId::default())
         .insert_resource(poll_turn::PollState::default())
         .insert_resource(UltimoTurnoAplicado::default());
@@ -447,6 +449,13 @@ pub fn main_internal() {
             )
             .in_set(ApplySnapshotSet),                    // ← NUEVO SystemSet
     )
+        .add_systems(
+            Update,
+            maybe_send_pending_turn // ✅ sin "systems::"
+                .after(snapshot::snapshot_apply_system)
+                .run_if(in_state(AppState::InGame)),
+        )
+
         .add_systems(
             Update,
             poll_turn::poll_turn_tick_system.run_if(in_state(AppState::InGame)),

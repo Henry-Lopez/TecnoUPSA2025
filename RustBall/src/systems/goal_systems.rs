@@ -160,20 +160,31 @@ pub fn despawn_game_entities(
     cameras: Query<Entity, With<GameCamera>>,
 ) {
     for entity in players.iter() {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
     for entity in balls.iter() {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
     for entity in goals.iter() {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
     for entity in fixed_bodies.iter() {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
     for entity in cameras.iter() {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
 
     println!("✅ Entidades físicas y visuales eliminadas tras GameOver.");
 }
+

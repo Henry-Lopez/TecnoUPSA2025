@@ -81,9 +81,13 @@ pub fn cleanup_game_over_ui(
     cameras: Query<Entity, With<Camera>>,
 ) {
     for entity in &ui_elements {
-        commands.entity(entity).despawn_recursive();
+        if commands.get_entity(entity).is_some() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
     for cam in &cameras {
-        commands.entity(cam).despawn_recursive();
+        if commands.get_entity(cam).is_some() {
+            commands.entity(cam).despawn_recursive();
+        }
     }
 }
