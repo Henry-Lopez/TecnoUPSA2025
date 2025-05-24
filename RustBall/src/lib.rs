@@ -478,8 +478,8 @@ pub fn main_internal() {
             (
                 fire_selected_disk,
                 apply_zone_effects,
-                check_turn_end.in_set(CheckTurnEndSet),       // ← NUEVO SystemSet
-                send_turn_to_backend.after(CheckTurnEndSet),
+                send_turn_to_backend.before(CheckTurnEndSet),  // ✅ Aquí el cambio
+                check_turn_end.in_set(CheckTurnEndSet),        // ✅ Pasa abajo
                 detect_goal,
                 handle_goal,
             )

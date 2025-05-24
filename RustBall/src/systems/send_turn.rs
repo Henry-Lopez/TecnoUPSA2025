@@ -63,7 +63,6 @@ pub fn send_turn_to_backend(
     }
 }
 
-
 #[cfg(target_arch = "wasm32")]
 use gloo_net::http::Request;
 #[cfg(target_arch = "wasm32")]
@@ -73,29 +72,52 @@ pub fn maybe_send_pending_turn(
     my_turn: Res<MyTurn>,
     mut pending: ResMut<PendingTurn>,
 ) {
-    info!("📡 maybe_send_pending_turn: my_turn = {}, pending = {}", my_turn.0, pending.0.is_some());
-
-    if !my_turn.0 {
-        return;
-    }
-
     if let Some(payload) = pending.0.take() {
-        info!("📬 Enviando jugada POST: {:?}", payload);
+        if !my_turn.0 {
+            info!("⌛ Jugada armada antes del turno. Esperando activación.");
+            pending.0 = Some(payload);
+            return;
+        }
+
+        info!("📬 Enviando jugada POST al backend:");
+        info!("📦 id_partida = {}", payload.id_partida);
+        info!("👤 id_usuario = {}", payload.id_usuario);
+        info!("🔢 numero_turno = {}", payload.numero_turno);
+        info!("📐 jugada = {}", payload.jugada);
 
         #[cfg(target_arch = "wasm32")]
         spawn_local(async move {
-            let response = Request::post("/api/jugada")
+            let json = serde_json::to_string(&payload).unwrap();
+            let req = Request::post("/api/jugada")
                 .header("Content-Type", "application/json")
-                .body(serde_json::to_string(&payload).unwrap())
-                .unwrap()
-                .send()
-                .await;
+                .body(json.clone());
 
-            match response {
-                Ok(resp) => info!("✅ POST /api/jugada status: {}", resp.status()),
-                Err(err) => error!("❌ Error al enviar jugada: {:?}", err),
+            let res = match req {
+                Ok(r) => r.send().await,
+                Err(e) => {
+                    error!("❌ Error al construir petición POST /api/jugada: {:?}", e);
+                    return;
+                }
+            };
+
+            match res {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_else(|_| "❌ Sin cuerpo en respuesta".to_string());
+
+                    if status >= 200 && status < 300 {
+                        info!("✅ POST /api/jugada registrado con éxito ({}): {}", status, text);
+                    } else {
+                        error!("⚠️ POST /api/jugada falló ({}): {}", status, text);
+                    }
+                }
+                Err(err) => {
+                    error!("❌ Error de red al enviar jugada: {:?}", err);
+                }
             }
         });
     }
 }
+
+
 
