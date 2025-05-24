@@ -4,7 +4,7 @@ use axum::{
     Router,
 };
 use std::{net::SocketAddr, path::PathBuf};
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::broadcast};
 use tower_http::{
     cors::{CorsLayer, Any},
     services::{ServeDir, ServeFile},
@@ -25,7 +25,7 @@ use routes::websocket::websocket_handler;
 
 #[tokio::main]
 async fn main() {
-    /* ─── Tracing / Logging ───────────────────────────────────── */
+    // Tracing / Logging
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_env_filter(EnvFilter::new("debug"))
@@ -33,7 +33,7 @@ async fn main() {
 
     info!("🚀 Iniciando backend RustBall...");
 
-    /* ─── Conexión a MySQL ───────────────────────────────────── */
+    // Conexión a MySQL
     let db_pool = match db_mysql::init_pool().await {
         pool => {
             info!("✅ Conexión a MySQL establecida.");
@@ -41,7 +41,10 @@ async fn main() {
         }
     };
 
-    /* ─── API (REST + WebSocket) ─────────────────────────────── */
+    // Canal broadcast para WebSocket
+    let (tx, _rx) = broadcast::channel::<String>(100);
+
+    // API (REST + WebSocket)
     let api = Router::new()
         .route("/jugada",               post(post_jugada))
         .route("/estado/:id",           get(get_estado))
@@ -57,9 +60,10 @@ async fn main() {
         .route("/pendientes/:u",        get(get_partidas_pendientes))
         .route("/partida_detalle/:p",   get(get_partida_detalle))
         .route("/ws/:partida/:uid",     get(websocket_handler))
-        .layer(Extension(db_pool));
+        .layer(Extension(db_pool.clone()))
+        .layer(Extension(tx.clone())); // 🟢 Agregado aquí
 
-    /* ─── Archivos estáticos (SPA) ───────────────────────────── */
+    // Archivos estáticos (SPA)
     let static_dir: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("webapp");
     let landing = static_dir.join("registro.html");
 
@@ -69,7 +73,7 @@ async fn main() {
 
     info!("📁 Archivos estáticos servidos desde: {:?}", static_dir);
 
-    /* ─── Middlewares CORS + Trace ───────────────────────────── */
+    // Middlewares CORS + Trace
     let environment = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".into());
 
     let cors = if environment == "production" {
@@ -92,7 +96,7 @@ async fn main() {
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
-    /* ─── Arrancar servidor ───────────────────────────────────── */
+    // Arrancar servidor
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| {
             info!("🌐 No se encontró PORT, usando 10000 por defecto");
@@ -111,5 +115,3 @@ async fn main() {
         error!("❌ Error al iniciar el servidor: {}", e);
     }
 }
-
-
