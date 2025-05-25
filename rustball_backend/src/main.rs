@@ -92,7 +92,7 @@ async fn main() {
 
     let app = Router::new()
         .nest("/api", api)
-        .merge(static_site)
+        .nest_service("/", static_site) // ← correcto
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
