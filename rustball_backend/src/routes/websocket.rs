@@ -24,6 +24,8 @@ use tracing::{debug, error, info, warn};
 use crate::handlers::get_snapshot;
 use axum::extract::Path as AxumPath;
 use http_body_util::BodyExt;
+use axum::Json;
+use crate::models::Snapshot;
 
 static PARTIDA_CHANNELS: OnceCell<Mutex<HashMap<i32, Sender<String>>>> = OnceCell::new();
 static LAST_SNAPSHOTS: OnceCell<Mutex<HashMap<i32, String>>> = OnceCell::new(); // 🆕
@@ -181,12 +183,11 @@ async fn client_session(
     remove_channel_if_empty(partida); // ✅ limpieza al desconectarse
 }
 
-// ❌ Ya no se usa: ahora usamos snapshot en memoria
-#[allow(dead_code)]
-async fn get_snapshot_json(partida: i32, pool: MySqlPool) -> Result<String, ()> {
-    let response: Response = get_snapshot(AxumPath(partida), Extension(pool))
-        .await
-        .into_response();
-    let body = response.into_body().collect().await.map_err(|_| ())?.to_bytes();
-    String::from_utf8(body.to_vec()).map_err(|_| ())
+#[axum::debug_handler]
+pub async fn get_snapshot_handler(
+    Path(id): Path<i32>,
+    Extension(pool): Extension<MySqlPool>,
+) -> Result<Json<Snapshot>, (StatusCode, String)> {
+    let snap = get_snapshot(id, pool).await?;
+    Ok(Json(snap))
 }

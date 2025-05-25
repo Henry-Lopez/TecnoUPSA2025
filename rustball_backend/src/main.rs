@@ -56,7 +56,7 @@ async fn main() {
         .route("/partida",              post(post_partida))
         .route("/mis_partidas/:u",      get(get_mis_partidas))
         .route("/gol",                  post(post_gol))
-        .route("/snapshot/:p",          get(get_snapshot))
+        .route("/snapshot/:p", get(routes::websocket::get_snapshot_handler))
         .route("/pendientes/:u",        get(get_partidas_pendientes))
         .route("/partida_detalle/:p",   get(get_partida_detalle))
         .route("/ws/:partida/:uid",     get(websocket_handler))

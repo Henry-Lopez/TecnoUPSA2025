@@ -24,6 +24,7 @@
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al iniciar transacción: {}", e))
         })?;
 
+        // Validar turno actual
         let turno_actual: Option<i32> = sqlx::query_scalar!(
         "SELECT turno_actual FROM Partida WHERE id_partida = ?",
         payload.id_partida
@@ -50,6 +51,7 @@
             ));
         }
 
+        // Calcular nuevo número de turno
         let max_turno_i64: i64 = sqlx::query_scalar!(
         "SELECT COALESCE(MAX(numero_turno), 0) FROM Turno WHERE id_partida = ?",
         payload.id_partida
@@ -63,8 +65,7 @@
 
         let nuevo_turno = (max_turno_i64 as i32) + 1;
 
-        let jugada_json = payload.jugada.clone();
-
+        // Insertar jugada
         sqlx::query!(
         r#"
         INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
@@ -73,7 +74,7 @@
         payload.id_partida,
         nuevo_turno,
         payload.id_usuario,
-        jugada_json
+        payload.jugada.clone()
     )
             .execute(&mut *transaction)
             .await
@@ -93,6 +94,7 @@
                 }
             })?;
 
+        // Calcular siguiente turno
         let (j1, j2) = sqlx::query!(
         "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
         payload.id_partida
@@ -119,49 +121,21 @@
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al actualizar turno_actual: {}", e))
             })?;
 
-        // 🔍 Verificación post-insert de turno_actual
-        let turno_actual_actualizado: Result<Option<i32>, _> = sqlx::query_scalar!(
-    "SELECT turno_actual FROM Partida WHERE id_partida = ?",
-    payload.id_partida
-)
-            .fetch_one(&mut *transaction)
-            .await;
-
-        match turno_actual_actualizado {
-            Ok(Some(actual)) if actual == payload.id_usuario => {
-                tracing::error!(
-            "⚠️ turno_actual NO SE ACTUALIZÓ: sigue siendo {} en la partida {}",
-            actual,
-            payload.id_partida
-        );
-            }
-            Ok(_) => { /* turno_actual está bien actualizado */ }
-            Err(e) => {
-                tracing::error!(
-            "❌ Error al reconsultar turno_actual para partida {}: {:?}",
-            payload.id_partida,
-            e
-        );
-            }
-        }
-
-
+        // Confirmar transacción
         transaction.commit().await.map_err(|e| {
             tracing::error!("❌ Error al confirmar transacción: {:?}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al confirmar: {}", e))
         })?;
 
-        let snap = super::get_snapshot(
-            Path(payload.id_partida),
-            Extension(pool.clone()),
-        )
+        // Generar snapshot
+        let snap = super::get_snapshot(payload.id_partida, pool.clone())
             .await
             .map_err(|e| {
                 tracing::error!("❌ Error al generar snapshot: {:?}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Error generando snapshot".into())
-            })?
-            .0;
+            })?;
 
+        // Enviar snapshot por WebSocket
         let msg = serde_json::json!({
         "uid_origen": payload.id_usuario,
         "tipo": "snapshot",
@@ -174,6 +148,7 @@
 
         Ok(Json("Turno registrado"))
     }
+
 
 
 
@@ -285,15 +260,15 @@
         /* 1. INSERT / UPDATE FormacionElegida ------------------------------------------------ */
         tracing::info!("1️⃣  Guardando formación…");
         sqlx::query!(
-            r#"
-            INSERT INTO FormacionElegida (id_partida, id_usuario, formacion, turno_inicio)
-            VALUES (?, ?, ?, 0)
-            ON DUPLICATE KEY UPDATE formacion = VALUES(formacion)
-            "#,
-            p.id_partida,
-            p.id_usuario,
-            p.formacion
-        )
+        r#"
+        INSERT INTO FormacionElegida (id_partida, id_usuario, formacion, turno_inicio)
+        VALUES (?, ?, ?, 0)
+        ON DUPLICATE KEY UPDATE formacion = VALUES(formacion)
+        "#,
+        p.id_partida,
+        p.id_usuario,
+        p.formacion
+    )
             .execute(&pool) // Usamos el pool directamente aquí
             .await
             .map_err(|e| {
@@ -304,9 +279,9 @@
         /* 2. ¿Ya hay 2 formaciones? (Lectura fuera de transacción) ---------------------------------------- */
         tracing::info!("2️⃣  Comprobando si ya hay 2 formaciones…");
         let formaciones_existentes = sqlx::query!(
-            "SELECT id_usuario, turno_inicio FROM FormacionElegida WHERE id_partida = ?",
-            p.id_partida
-        )
+        "SELECT id_usuario, turno_inicio FROM FormacionElegida WHERE id_partida = ?",
+        p.id_partida
+    )
             .fetch_all(&pool) // Usamos el pool directamente para esta lectura
             .await
             .map_err(|e| {
@@ -328,15 +303,10 @@
             })?;
 
         /* 3. Calcular turno_inicio=1 (el que arranca) --------------------- */
-        // Re-leer formaciones dentro de la transacción si la consistencia es ultra-crítica
-        // para evitar que otro request las modifique justo antes de la transacción.
-        // Para este caso, la lectura fuera de la transacción para el `if formaciones.len() < 2`
-        // es probablemente suficiente, ya que si cambia, la transacción lo manejará o fallará.
-        // Pero si quieres la máxima seguridad:
         let formaciones_para_tx = sqlx::query!(
-            "SELECT id_usuario, turno_inicio FROM FormacionElegida WHERE id_partida = ?",
-            p.id_partida
-        )
+        "SELECT id_usuario, turno_inicio FROM FormacionElegida WHERE id_partida = ?",
+        p.id_partida
+    )
             .fetch_all(&mut *transaction) // Usar &mut *transaction
             .await
             .map_err(|e| {
@@ -344,8 +314,7 @@
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Error del servidor: {}", e))
             })?;
 
-
-        let primero = formaciones_para_tx // Usamos la re-lectura para la lógica de sorteo
+        let primero = formaciones_para_tx
             .iter()
             .find(|f| f.turno_inicio == 1)
             .map(|f| f.id_usuario);
@@ -353,17 +322,16 @@
         let primero = match primero {
             Some(uid) => uid,
             None => {
-                // Si aún no se inicializó turno_inicio, sorteamos y actualizamos.
                 let [a, b] = [formaciones_para_tx[0].id_usuario, formaciones_para_tx[1].id_usuario];
                 let (primero, segundo) = if rand::random() { (a, b) } else { (b, a) };
 
                 for (uid, idx) in [(primero, 1), (segundo, 2)] {
                     sqlx::query!(
-                        "UPDATE FormacionElegida SET turno_inicio = ? WHERE id_partida = ? AND id_usuario = ?",
-                        idx,
-                        p.id_partida,
-                        uid
-                    )
+                    "UPDATE FormacionElegida SET turno_inicio = ? WHERE id_partida = ? AND id_usuario = ?",
+                    idx,
+                    p.id_partida,
+                    uid
+                )
                         .execute(&mut *transaction) // Usar &mut *transaction
                         .await
                         .map_err(|e| {
@@ -378,11 +346,11 @@
 
         /* 4. UPDATE Partida → estado='playing', turno_actual (dentro de transacción) -------------- */
         sqlx::query!(
-            "UPDATE Partida SET estado = 'playing', turno_actual = ? WHERE id_partida = ?",
-            primero,
-            p.id_partida
-        )
-            .execute(&mut *transaction) // Usar &mut *transaction
+        "UPDATE Partida SET estado = 'playing', turno_actual = ? WHERE id_partida = ?",
+        primero,
+        p.id_partida
+    )
+            .execute(&mut *transaction)
             .await
             .map_err(|e| {
                 tracing::error!("❌ UPDATE Partida en TX: {e:?}");
@@ -401,16 +369,12 @@
 
         /* 5. Generar snapshot inicial y avisar (fuera de transacción) ---------------------------- */
         tracing::info!("5️⃣  Generando snapshot inicial…");
-        let snap = super::get_snapshot(
-            Path(p.id_partida),
-            Extension(pool.clone()), // Usar el pool original, no la transacción
-        )
+        let snap = super::get_snapshot(p.id_partida, pool.clone())
             .await
             .map_err(|e| {
                 tracing::error!("❌ Error generando snapshot: {e:?}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Error generando snapshot".into())
-            })?
-            .0;
+            })?;
 
         // Mensaje 'start' + snapshot completo
         let _ = tx.send("start".to_string());
@@ -640,21 +604,20 @@
     }
     use crate::routes::websocket::save_last_snapshot; // 🆕 Agrega este import
 
-    #[axum::debug_handler]
     pub async fn get_snapshot(
-        Path(id_partida): Path<i32>,
-        Extension(pool): Extension<MySqlPool>,
-    ) -> Result<Json<Snapshot>, (StatusCode, String)> {
-        tracing::info!("▶️ GET /snapshot/{id_partida} — Solicitando snapshot");
+        id_partida: i32,
+        pool: MySqlPool,
+    ) -> Result<Snapshot, (StatusCode, String)> {
+        tracing::info!("▶️ Generando snapshot de partida {id_partida}");
 
         let partida_data = sqlx::query!(
-            r#"
-            SELECT estado AS "estado!: String", turno_actual, gol_j1, gol_j2
-            FROM Partida
-            WHERE id_partida = ?
-            "#,
-            id_partida
-        )
+        r#"
+        SELECT estado AS "estado!: String", turno_actual, gol_j1, gol_j2
+        FROM Partida
+        WHERE id_partida = ?
+        "#,
+        id_partida
+    )
             .fetch_one(&pool)
             .await
             .map_err(|e| {
@@ -666,16 +629,16 @@
             })?;
 
         let nombres = sqlx::query!(
-            r#"
-            SELECT u1.nombre_usuario AS nombre_jugador_1,
-                   u2.nombre_usuario AS nombre_jugador_2
-            FROM   Partida
-            JOIN   Usuario u1 ON u1.id_usuario = Partida.id_jugador1
-            JOIN   Usuario u2 ON u2.id_usuario = Partida.id_jugador2
-            WHERE  Partida.id_partida = ?
-            "#,
-            id_partida
-        )
+        r#"
+        SELECT u1.nombre_usuario AS nombre_jugador_1,
+               u2.nombre_usuario AS nombre_jugador_2
+        FROM   Partida
+        JOIN   Usuario u1 ON u1.id_usuario = Partida.id_jugador1
+        JOIN   Usuario u2 ON u2.id_usuario = Partida.id_jugador2
+        WHERE  Partida.id_partida = ?
+        "#,
+        id_partida
+    )
             .fetch_one(&pool)
             .await
             .map_err(|e| {
@@ -687,14 +650,14 @@
             })?;
 
         let formaciones = sqlx::query_as!(
-            FormacionData,
-            r#"
-            SELECT id_usuario, formacion, turno_inicio
-            FROM   FormacionElegida
-            WHERE  id_partida = ?
-            "#,
-            id_partida
-        )
+        FormacionData,
+        r#"
+        SELECT id_usuario, formacion, turno_inicio
+        FROM   FormacionElegida
+        WHERE  id_partida = ?
+        "#,
+        id_partida
+    )
             .fetch_all(&pool)
             .await
             .map_err(|e| {
@@ -707,9 +670,9 @@
 
         if formaciones.len() < 2 {
             tracing::warn!(
-                "⚠️ Solo {} formaciones encontradas. Devolviendo snapshot parcial.",
-                formaciones.len()
-            );
+            "⚠️ Solo {} formaciones encontradas. Devolviendo snapshot parcial.",
+            formaciones.len()
+        );
 
             let snapshot = Snapshot {
                 estado: "waiting".to_string(),
@@ -721,12 +684,11 @@
                 nombre_jugador_2: nombres.nombre_jugador_2,
             };
 
-            // 🧠 Guardar snapshot parcial en memoria también (opcional)
             if let Ok(json_str) = serde_json::to_string(&snapshot) {
                 save_last_snapshot(id_partida, json_str);
             }
 
-            return Ok(Json(snapshot));
+            return Ok(snapshot);
         }
 
         let marcador = (
@@ -735,18 +697,18 @@
         );
 
         let mut turnos = sqlx::query_as!(
-            TurnoData,
-            r#"
-            SELECT numero_turno,
-                   id_usuario,
-                   jugada,
-                   fecha_turno AS "fecha_turno: chrono::NaiveDateTime"
-            FROM   Turno
-            WHERE  id_partida = ?
-            ORDER  BY numero_turno
-            "#,
-            id_partida
-        )
+        TurnoData,
+        r#"
+        SELECT numero_turno,
+               id_usuario,
+               jugada,
+               fecha_turno AS "fecha_turno: chrono::NaiveDateTime"
+        FROM   Turno
+        WHERE  id_partida = ?
+        ORDER  BY numero_turno
+        "#,
+        id_partida
+    )
             .fetch_all(&pool)
             .await
             .map_err(|e| {
@@ -763,19 +725,19 @@
                     .iter()
                     .map(|p| {
                         json!({
-                            "id_usuario_real": t.id_usuario,
-                            "x": p.get("x").unwrap_or(&json!(null)),
-                            "y": p.get("y").unwrap_or(&json!(null))
-                        })
+                        "id_usuario_real": t.id_usuario,
+                        "x": p.get("x").unwrap_or(&json!(null)),
+                        "y": p.get("y").unwrap_or(&json!(null))
+                    })
                     })
                     .collect();
                 t.jugada = json!({ "piezas": enriched });
             } else {
                 tracing::warn!(
-                    "⚠️ Turno #{} no tiene piezas válidas. Jugada original: {:?}",
-                    t.numero_turno,
-                    t.jugada
-                );
+                "⚠️ Turno #{} no tiene piezas válidas. Jugada original: {:?}",
+                t.numero_turno,
+                t.jugada
+            );
             }
         }
 
@@ -789,14 +751,14 @@
             nombre_jugador_2: nombres.nombre_jugador_2,
         };
 
-        // ✅ Guardar en memoria el snapshot completo
         if let Ok(json_str) = serde_json::to_string(&snapshot) {
             save_last_snapshot(id_partida, json_str);
         }
 
         tracing::info!("✅ Snapshot de partida {} generado con éxito", id_partida);
-        Ok(Json(snapshot))
+        Ok(snapshot)
     }
+
 
     #[axum::debug_handler]
     pub async fn get_partidas_pendientes(
