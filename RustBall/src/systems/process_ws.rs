@@ -24,7 +24,7 @@ mod wasm_ws {
             let loc = web_sys::window().unwrap().location();
             let host = loc.host().unwrap(); // ej: localhost:10000
             let proto = if loc.protocol().unwrap() == "https:" { "wss" } else { "ws" };
-            let url = format!("{proto}://{host}/ws/{}/{}", backend.partida_id, backend.my_uid);
+            let url = format!("{proto}://{host}/api/ws/{}/{}", backend.partida_id, backend.my_uid);
 
             let ws = WebSocket::new(&url).expect("No se pudo abrir WebSocket");
             ws.set_binary_type(web_sys::BinaryType::Arraybuffer);

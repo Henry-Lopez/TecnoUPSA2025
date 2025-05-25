@@ -85,7 +85,7 @@ pub fn set_game_state(json_str: &str, uid: i32) {
                 return;
             }
 
-            let mut last = LAST_TURNO.lock().unwrap();
+            let last = LAST_TURNO.lock().unwrap();
 
             info!(
                 "📥 Recibido snapshot turno {} (último aplicado {})",
@@ -93,7 +93,6 @@ pub fn set_game_state(json_str: &str, uid: i32) {
             );
 
             if snap.proximo_turno > *last {
-                *last = snap.proximo_turno;
                 APP_STATE.with(|c| *c.borrow_mut() = Some((snap, uid)));
                 info!("✅ Snapshot en cola para ser aplicado");
             } else {
@@ -106,7 +105,7 @@ pub fn set_game_state(json_str: &str, uid: i32) {
     }
 }
 
-/* ======================================================================= */
+
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot_apply_system(
     mut commands         : Commands,
@@ -121,7 +120,10 @@ pub fn snapshot_apply_system(
     backend_info         : Res<BackendInfo>,
     player_names         : Option<Res<PlayerNames>>,
 ) {
-    let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else { return; };
+    let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else {
+        warn!("📭 No hay snapshot en cola para aplicar.");
+        return;
+    };
 
     info!("🔄 Aplicando snapshot – turno {}", snap.proximo_turno);
 
@@ -131,8 +133,10 @@ pub fn snapshot_apply_system(
     });
 
     if snap.proximo_turno == ultimo_turno.0 {
+        warn!("⏩ Snapshot ignorado: mismo turno que el último aplicado ({})", snap.proximo_turno);
         return;
     }
+
     ultimo_turno.0 = snap.proximo_turno;
 
     if let Some(last) = snap.turnos.last() {
@@ -157,12 +161,16 @@ pub fn snapshot_apply_system(
             );
 
             commands.insert_resource(NextTurn(last.numero_turno + 1));
+        } else {
+            warn!("📛 Snapshot recibido con jugada inválida o corrupta.");
         }
     } else if snap.formaciones.len() >= 2 {
         for f in &snap.formaciones {
             spawn_formation_for(f, &mut commands, &asset_server, &backend_info);
         }
         commands.insert_resource(NextTurn(1));
+    } else {
+        warn!("📛 Snapshot recibido sin jugadas ni formaciones válidas.");
     }
 
     *scores = Scores { left: snap.marcador.0, right: snap.marcador.1 };
@@ -179,7 +187,13 @@ pub fn snapshot_apply_system(
 
     if *state != AppState::InGame && snap.proximo_turno != 0 {
         next_state.set(AppState::InGame);
+        info!("🎮 Estado cambiado a InGame.");
     }
+
+    // 🔄 ACTUALIZAR LAST_TURNO DESPUÉS DE APLICAR CORRECTAMENTE EL SNAPSHOT
+    let mut last = LAST_TURNO.lock().unwrap();
+    *last = snap.proximo_turno;
+    info!("✅ LAST_TURNO actualizado a {}", *last);
 }
 
 /* ======================================================================= */
