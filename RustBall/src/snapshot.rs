@@ -172,8 +172,9 @@ pub fn snapshot_apply_system(
 
     if is_my_turn {
         if let Some(mut pending) = commands.remove_resource::<PendingTurn>() {
-            if pending.0.is_some() {
-                commands.insert_resource(pending);
+            if let Some(payload) = pending.0.take() {
+                info!("📤 Reenviando jugada pendiente tras aplicar snapshot");
+                commands.insert_resource(PendingTurn(Some(payload)));
             }
         }
     }
