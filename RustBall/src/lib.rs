@@ -290,6 +290,9 @@ pub fn main_internal() {
     use crate::systems::CheckTurnEndSet;     // systems que cierran un turno
     use crate::systems::{maybe_send_pending_turn, PendingTurn}; // ✅ ya importados
 
+    #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+    pub struct SendTurnSet;
+
     // --------------------------------------------------------------------
     //  CREA Y CONFIGURA LA APLICACIÓN
     // --------------------------------------------------------------------
@@ -439,6 +442,8 @@ pub fn main_internal() {
         .add_systems(OnExit(AppState::InGame), stop_ingame_music);
 
     // ───────── SISTEMAS PRINCIPALES (snapshot y turno) ──────────────────
+    app.configure_set(Update, SendTurnSet.after(CheckTurnEndSet));
+
     app.add_systems(
         Update,
         snapshot::snapshot_apply_system
@@ -447,18 +452,12 @@ pub fn main_internal() {
                     .or_else(in_state(AppState::FormationChange))
                     .or_else(in_state(AppState::InGame)),
             )
-            .in_set(ApplySnapshotSet),                    // ← NUEVO SystemSet
+            .in_set(ApplySnapshotSet),
     )
         .add_systems(
             Update,
-            maybe_send_pending_turn // ✅ sin "systems::"
-                .after(snapshot::snapshot_apply_system)
+            poll_turn::poll_turn_tick_system
                 .run_if(in_state(AppState::InGame)),
-        )
-
-        .add_systems(
-            Update,
-            poll_turn::poll_turn_tick_system.run_if(in_state(AppState::InGame)),
         )
         .add_systems(
             Update,
@@ -478,13 +477,21 @@ pub fn main_internal() {
             (
                 fire_selected_disk,
                 apply_zone_effects,
-                send_turn_to_backend.before(CheckTurnEndSet),  // ✅ Aquí el cambio
-                check_turn_end.in_set(CheckTurnEndSet),        // ✅ Pasa abajo
+                send_turn_to_backend.in_set(SendTurnSet),  // ✅ ahora agrupado
+                check_turn_end.in_set(CheckTurnEndSet),
                 detect_goal,
                 handle_goal,
             )
                 .run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            Update,
+            maybe_send_pending_turn
+                .in_set(SendTurnSet) // ✅ se ejecuta después de send_turn_to_backend
+                .run_if(in_state(AppState::InGame)),
         );
+
+
 
     // ───────── HUD / UI / Visual ────────────────────────────────────────
     app.add_systems(
