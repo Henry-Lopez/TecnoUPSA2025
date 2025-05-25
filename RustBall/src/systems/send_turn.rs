@@ -9,7 +9,7 @@ use crate::{
     snapshot::{NextTurn, MyTurn},
 };
 
-// 🔄 NUEVO recurso global para guardar la jugada pendiente
+// 🔄 Recurso global que guarda la jugada pendiente
 #[derive(Resource, Default)]
 pub struct PendingTurn(pub Option<TurnPayload>);
 
@@ -22,6 +22,7 @@ pub struct TurnPayload {
     pub jugada: serde_json::Value,
 }
 
+// 📤 Armado del TurnPayload al finalizar el turno
 pub fn send_turn_to_backend(
     mut ev_end: EventReader<TurnFinishedEvent>,
     backend: Res<BackendInfo>,
@@ -33,7 +34,8 @@ pub fn send_turn_to_backend(
     for _ in ev_end.read() {
         info!("📤 Evento TurnFinished recibido. UID actual: {}", backend.my_uid);
 
-        let piezas: Vec<_> = query.iter()
+        let piezas: Vec<_> = query
+            .iter()
             .map(|(entity, transform, disk)| {
                 json!({
                     "id": entity.index(),
@@ -56,7 +58,11 @@ pub fn send_turn_to_backend(
             jugada: json!({ "piezas": piezas }),
         };
 
-        info!("✅ Jugada lista para enviar: {:?}", payload);
+        info!("✅ Jugada lista para enviar:");
+        info!("📦 id_partida = {}", payload.id_partida);
+        info!("👤 id_usuario = {}", payload.id_usuario);
+        info!("🔢 numero_turno = {}", payload.numero_turno);
+        info!("📐 jugada = {}", payload.jugada);
 
         commands.insert_resource(PendingTurn(Some(payload)));
         commands.insert_resource(MyTurn(false));
@@ -68,6 +74,7 @@ use gloo_net::http::Request;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
 
+// 🚀 Enviar jugada si es mi turno y hay jugada pendiente
 pub fn maybe_send_pending_turn(
     my_turn: Res<MyTurn>,
     mut pending: ResMut<PendingTurn>,
@@ -75,7 +82,7 @@ pub fn maybe_send_pending_turn(
     if let Some(payload) = pending.0.take() {
         if !my_turn.0 {
             info!("⌛ Jugada armada antes del turno. Esperando activación.");
-            pending.0 = Some(payload);
+            pending.0 = Some(payload); // volver a guardarla para cuando toque
             return;
         }
 
@@ -118,6 +125,3 @@ pub fn maybe_send_pending_turn(
         });
     }
 }
-
-
-
