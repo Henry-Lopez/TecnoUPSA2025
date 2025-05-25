@@ -9,22 +9,18 @@ use crate::{
         AppState, CurrentPlayerId, PlayerNames, Scores, TurnState,
         UltimoTurnoAplicado, WsInbox,
     },
-    systems::apply_board_snapshot,
+    systems::{apply_board_snapshot, PendingTurn},
 };
 
-/* ───────────── etiqueta SystemSet ───────────── */
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub struct ApplySnapshotSet;
 
-/* ───────────── Recurso: próximo nº de turno ───────────── */
 #[derive(Resource, Default, Debug)]
 pub struct NextTurn(pub i32);
 
-/* ───────────── Recurso: ¿es mi turno? ───────────── */
 #[derive(Resource, Default, Debug)]
 pub struct MyTurn(pub bool);
 
-/* ───────────── Modelos JSON que llegan del backend ───────────── */
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PiezaPos {
     pub id: u32,
@@ -64,14 +60,12 @@ pub struct SnapshotFromServer {
     pub nombre_jugador_2: String,
 }
 
-/* ───────────── Buffer local (snapshot en cola) ───────────── */
 thread_local! {
     static APP_STATE: std::cell::RefCell<Option<(SnapshotFromServer, i32)>> =
         const { std::cell::RefCell::new(None) };
 }
 static LAST_TURNO: std::sync::Mutex<i32> = std::sync::Mutex::new(0);
 
-/* ───────────── Callback JS → Rust ───────────── */
 #[wasm_bindgen]
 pub fn set_game_state(json_str: &str, uid: i32) {
     web_sys::console::log_1(&"🧠 set_game_state() fue llamado".into());
@@ -106,27 +100,26 @@ pub fn set_game_state(json_str: &str, uid: i32) {
     }
 }
 
-/* ======================================================================= */
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot_apply_system(
-    mut commands         : Commands,
-    mut scores           : ResMut<Scores>,
-    mut ts               : ResMut<TurnState>,
-    mut ultimo_turno     : ResMut<UltimoTurnoAplicado>,
+    mut commands: Commands,
+    mut scores: ResMut<Scores>,
+    mut ts: ResMut<TurnState>,
+    mut ultimo_turno: ResMut<UltimoTurnoAplicado>,
     mut current_player_id: ResMut<CurrentPlayerId>,
-    q_disks              : Query<Entity, With<PlayerDisk>>,
-    state                : Res<State<AppState>>,
-    mut next_state       : ResMut<NextState<AppState>>,
-    asset_server         : Res<AssetServer>,
-    backend_info         : Res<BackendInfo>,
-    player_names         : Option<Res<PlayerNames>>,
+    q_disks: Query<Entity, With<PlayerDisk>>,
+    state: Res<State<AppState>>,
+    mut next_state: ResMut<NextState<AppState>>,
+    asset_server: Res<AssetServer>,
+    backend_info: Res<BackendInfo>,
+    player_names: Option<Res<PlayerNames>>,
 ) {
     let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else { return; };
 
     info!("🔄 Aplicando snapshot – turno {}", snap.proximo_turno);
 
     commands.insert_resource(PlayerNames {
-        left_name : snap.nombre_jugador_1.clone(),
+        left_name: snap.nombre_jugador_1.clone(),
         right_name: snap.nombre_jugador_2.clone(),
     });
 
@@ -167,30 +160,37 @@ pub fn snapshot_apply_system(
 
     *scores = Scores { left: snap.marcador.0, right: snap.marcador.1 };
 
-    ts.in_motion        = false;
-    ts.selected_entity  = None;
+    ts.in_motion = false;
+    ts.selected_entity = None;
     ts.skip_turn_switch = false;
-    ts.current_turn_id  = snap.proximo_turno;
+    ts.current_turn_id = snap.proximo_turno;
     current_player_id.0 = snap.proximo_turno;
 
     let is_my_turn = snap.proximo_turno == my_uid;
     commands.insert_resource(MyTurn(is_my_turn));
     info!("🕑 MyTurn = {}", is_my_turn);
 
+    if is_my_turn {
+        if let Some(mut pending) = commands.remove_resource::<PendingTurn>() {
+            if pending.0.is_some() {
+                commands.insert_resource(pending);
+            }
+        }
+    }
+
     if *state != AppState::InGame && snap.proximo_turno != 0 {
         next_state.set(AppState::InGame);
     }
 }
 
-/* ======================================================================= */
 #[cfg(target_arch = "wasm32")]
-pub fn fetch_snapshot_on_ws_message(mut inbox : ResMut<WsInbox>) {
+pub fn fetch_snapshot_on_ws_message(mut inbox: ResMut<WsInbox>) {
     inbox.0.clear();
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn poll_snapshot_when_forming(
-    time  : Res<Time>,
+    time: Res<Time>,
     mut timer: ResMut<crate::resources::SnapshotPollTimer>,
     backend: Option<Res<BackendInfo>>,
 ) {
