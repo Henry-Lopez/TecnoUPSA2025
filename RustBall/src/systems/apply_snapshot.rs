@@ -1,80 +1,106 @@
 //! src/systems/apply_snapshot.rs
 //! --------------------------------------------------------------
-//! Reconstruye todas las fichas a partir del snapshot que envía
-//! el backend.  A partir de ahora cada `PlayerDisk` guarda
-//! `id_usuario_real` (el UID de MySQL) y el control del turno se
-//! concede usando ese UID, de modo que cada cliente sólo pueda
-//! mover sus propias fichas.
+//! Reconstruye el tablero a partir del snapshot del backend:
 //!
-//!   • Se eliminó por completo el mapeo `0/1/2 → UID`.
-//!   • Las texturas se cargan vía `AssetServer`, por lo que ya no
-//!     aparecen “cuadrados blancos” al refrescar la página.
+//!   • Fichas  → PlayerDisk + OwnedBy
+//!   • Pelota  → Ball   (id == -1)
+//!
+//! Cada PlayerDisk conserva `id_usuario_real`, de forma que cada
+//! cliente sólo puede mover las suyas.
 //! --------------------------------------------------------------
 
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
 use crate::{
-    components::{OwnedBy, PlayerDisk, TurnControlled},
+    components::{Ball, OwnedBy, PlayerDisk, TurnControlled},
     resources::{BackendInfo, PlayerNames},
-    snapshot::BoardSnapshot,
+    snapshot::{BoardSnapshot, PiezaPos},
 };
 
-/// Crea (o recrea) todas las fichas que vienen dentro de `board`.
+/// Crea / recrea todas las piezas que llegan en `board`.
 ///
-/// * **existing_disks** – todas las entidades actuales con `PlayerDisk` serán
-///   despawneadas antes de spawnear las nuevas.
-/// * **current_turn_id** – UID real del jugador al que le toca mover; sólo la
-///   primera ficha de ese jugador recibe `TurnControlled`.
+/// * **existing_disks**  – despawnea todas las entidades con `PlayerDisk`.
+/// * **existing_ball**   – despawnea la pelota si ya existía.
+/// * **current_turn_id** – UID real del jugador al que le toca mover; sólo
+///                         la primera ficha de ese jugador recibe
+///                         `TurnControlled`.
 pub fn apply_board_snapshot(
     board: BoardSnapshot,
     commands: &mut Commands,
     backend_info: BackendInfo,
     existing_disks: Query<Entity, With<PlayerDisk>>,
+    existing_ball : Query<Entity, With<Ball>>,     // ← nuevo
     current_turn_id: i32,
     names: Option<PlayerNames>,
     asset_server: &Res<AssetServer>,
 ) {
-    /* ─── 1. Limpiar fichas anteriores ─────────────────────────────── */
-    for entity in existing_disks.iter() {
-        commands.entity(entity).despawn_recursive();
+    /* ─── 1. Limpiar fichas y pelota anteriores ───────────────────── */
+    for e in &existing_disks {
+        commands.entity(e).despawn_recursive();
+    }
+    if let Ok(ball) = existing_ball.get_single() {
+        commands.entity(ball).despawn_recursive();
     }
 
-    /* ─── 2. Recursos comunes (texturas + damping) ─────────────────── */
+    /* ─── 2. Recursos comunes (texturas + damping) ────────────────── */
     let tex_left  = asset_server.load("circulobarca.png");
     let tex_right = asset_server.load("circuloparis.png");
+    let tex_ball  = asset_server.load("pelota.png");
 
     let damping = Damping {
-        linear_damping: 2.0,
+        linear_damping : 2.0,
         angular_damping: 2.0,
     };
 
-    /* ─── 3. Spawnear cada pieza ────────────────────────────────────── */
+    /* ─── 3. Spawnear cada pieza ──────────────────────────────────── */
     let my_uid          = backend_info.my_uid;
-    let mut control_set = false; // sólo una ficha recibe TurnControlled
+    let mut control_set = false;          // sólo 1 ficha con TurnControlled
 
-    for pieza in board.piezas {
-        let uid_real = pieza.id_usuario_real;
+    for PiezaPos { id, x, y, id_usuario_real } in board.piezas {
+        /* ───── Pelota ───── */
+        if id == -1 {
+            commands.spawn((
+                SpriteBundle {
+                    texture   : tex_ball.clone(),
+                    transform : Transform::from_xyz(x, y, 12.0),
+                    sprite    : Sprite {
+                        custom_size: Some(Vec2::splat(48.0)),
+                        ..default()
+                    },
+                    ..default()
+                },
+                RigidBody::Dynamic,
+                Collider::ball(24.0),
+                Restitution::coefficient(0.6),
+                ActiveEvents::COLLISION_EVENTS,
+                Velocity::zero(),
+                damping.clone(),
+                LockedAxes::ROTATION_LOCKED,
+                Sleeping::disabled(),
+                Ball,
+                Name::new("ball"),
+            ));
+            continue;
+        }
 
-        /* ¿Es jugador izquierdo o derecho? */
-        let is_left   = uid_real == backend_info.id_left;
-        let texture   = if is_left { tex_left.clone() } else { tex_right.clone() };
+        /* ───── Ficha de jugador ───── */
+        let uid_real = id_usuario_real;
+        let is_left  = uid_real == backend_info.id_left;
 
+        let texture  = if is_left { tex_left.clone() } else { tex_right.clone() };
         let name_log = match &names {
             Some(n) if is_left => &n.left_name,
             Some(n)            => &n.right_name,
             None               => "desconocido",
         };
-
         info!("🧩 Spawn ficha UID {uid_real} – jugador {name_log}");
 
-        /* — Sprite + cuerpo físico — */
         let mut ecmd = commands.spawn((
             SpriteBundle {
                 texture,
-                transform: Transform::from_xyz(pieza.x, pieza.y, 10.0),
+                transform: Transform::from_xyz(x, y, 10.0),
                 sprite: Sprite {
-                    color: Color::WHITE,
                     custom_size: Some(Vec2::splat(70.0)),
                     ..default()
                 },
@@ -91,17 +117,15 @@ pub fn apply_board_snapshot(
             damping.clone(),
             LockedAxes::ROTATION_LOCKED,
             Sleeping::disabled(),
-            /* El `player_id` local (1 izquierda, 2 derecha) sólo se usa
-               para colorear la UI; el UID real se guarda aparte        */
             PlayerDisk {
-                player_id: if is_left { 1 } else { 2 },
+                player_id      : if is_left { 1 } else { 2 },
                 id_usuario_real: uid_real,
             },
             OwnedBy(uid_real),
             Name::new(format!("disk_user_{uid_real}")),
         ));
 
-        /* — Dar control a la primera ficha de mi turno — */
+        // Dar control a la primera ficha del jugador en turno
         if uid_real == my_uid && uid_real == current_turn_id && !control_set {
             ecmd.insert(TurnControlled);
             control_set = true;

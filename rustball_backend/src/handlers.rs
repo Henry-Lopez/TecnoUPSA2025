@@ -580,31 +580,32 @@ pub async fn post_jugada(
     }
     use crate::routes::websocket::save_last_snapshot; // 🆕 Agrega este import
 
-    pub async fn get_snapshot(
-        id_partida: i32,
-        pool: MySqlPool,
-    ) -> Result<Snapshot, (StatusCode, String)> {
-        tracing::info!("▶️ Generando snapshot de partida {id_partida}");
+// -----------------------------------------------------------------------------
+//  GET /snapshot/{id_partida}
+// -----------------------------------------------------------------------------
+pub async fn get_snapshot(
+    id_partida: i32,
+    pool: MySqlPool,
+) -> Result<Snapshot, (StatusCode, String)> {
+    tracing::info!("▶️ Generando snapshot de partida {id_partida}");
 
-        let partida_data = sqlx::query!(
+    /* ───── 1. Cabecera de la partida ───── */
+    let partida_data = sqlx::query!(
         r#"
-        SELECT estado AS "estado!: String", turno_actual, gol_j1, gol_j2
-        FROM Partida
-        WHERE id_partida = ?
+        SELECT estado  AS "estado!: String",
+               turno_actual,
+               gol_j1,
+               gol_j2
+        FROM   Partida
+        WHERE  id_partida = ?
         "#,
         id_partida
     )
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ Error SQL en estado de partida: {:?}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Error al obtener estado de la partida".into(),
-                )
-            })?;
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| internal!("estado de la partida")(e))?;
 
-        let nombres = sqlx::query!(
+    let nombres = sqlx::query!(
         r#"
         SELECT u1.nombre_usuario AS nombre_jugador_1,
                u2.nombre_usuario AS nombre_jugador_2
@@ -615,17 +616,12 @@ pub async fn post_jugada(
         "#,
         id_partida
     )
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ Error SQL en nombres de jugadores: {:?}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Error al obtener nombres de jugadores".into(),
-                )
-            })?;
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| internal!("nombres de jugadores")(e))?;
 
-        let formaciones = sqlx::query_as!(
+    /* ───── 2. Formaciones ───── */
+    let formaciones = sqlx::query_as!(
         FormacionData,
         r#"
         SELECT id_usuario, formacion, turno_inicio
@@ -634,45 +630,30 @@ pub async fn post_jugada(
         "#,
         id_partida
     )
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ Error SQL en formaciones: {:?}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Error al obtener formaciones".into(),
-                )
-            })?;
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| internal!("formaciones")(e))?;
 
-        if formaciones.len() < 2 {
-            tracing::warn!(
-            "⚠️ Solo {} formaciones encontradas. Devolviendo snapshot parcial.",
-            formaciones.len()
-        );
-
-            let snapshot = Snapshot {
-                estado: "waiting".to_string(),
-                marcador: (0, 0),
-                formaciones,
-                turnos: vec![],
-                proximo_turno: 0,
-                nombre_jugador_1: nombres.nombre_jugador_1,
-                nombre_jugador_2: nombres.nombre_jugador_2,
-            };
-
-            if let Ok(json_str) = serde_json::to_string(&snapshot) {
-                save_last_snapshot(id_partida, json_str);
-            }
-
-            return Ok(snapshot);
+    // Si no hay las 2 formaciones devolvemos snapshot mínimo
+    if formaciones.len() < 2 {
+        let snapshot = Snapshot {
+            estado: "waiting".into(),
+            marcador: (0, 0),
+            formaciones,
+            turnos: vec![],
+            proximo_turno: 0,
+            nombre_jugador_1: nombres.nombre_jugador_1,
+            nombre_jugador_2: nombres.nombre_jugador_2,
+        };
+        // (opcional) guarda como “último snapshot”
+        if let Ok(s) = serde_json::to_string(&snapshot) {
+            save_last_snapshot(id_partida, s);
         }
+        return Ok(snapshot);
+    }
 
-        let marcador = (
-            partida_data.gol_j1.unwrap_or(0),
-            partida_data.gol_j2.unwrap_or(0),
-        );
-
-        let mut turnos = sqlx::query_as!(
+    /* ───── 3. Turnos y jugadas ───── */
+    let mut turnos = sqlx::query_as!(
         TurnoData,
         r#"
         SELECT numero_turno,
@@ -685,66 +666,75 @@ pub async fn post_jugada(
         "#,
         id_partida
     )
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ Error SQL al obtener turnos: {:?}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Error al obtener turnos".into(),
-                )
-            })?;
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| internal!("turnos")(e))?;
 
-        for t in &mut turnos {
-            if let Some(arr) = t.jugada.get("piezas").and_then(|v| v.as_array()) {
-                // ───── copiar pieza por pieza sin perder su propietario real ─────
-                let enriched: Vec<_> = arr
-                    .iter()
-                    .map(|p| {
-                        json!({
-                    // id tal cual venía
-                    "id" : p.get("id").cloned().unwrap_or(json!(null)),
-                    // si ya trae id_usuario_real lo dejamos; si no, usamos t.id_usuario
-                    "id_usuario_real": p
+    // ➜ Enriquecer cada jugada
+    for t in &mut turnos {
+        if let Some(arr) = t.jugada.get("piezas").and_then(|v| v.as_array()) {
+            let enriched: Vec<_> = arr
+                .iter()
+                .map(|p| {
+                    // id original
+                    let id_val = p.get("id").cloned().unwrap_or(json!(null));
+
+                    // dueño real (si faltaba)
+                    let owner = p
                         .get("id_usuario_real")
                         .cloned()
-                        .unwrap_or(json!(t.id_usuario)),
-                    "x" : p.get("x").cloned().unwrap_or(json!(null)),
-                    "y" : p.get("y").cloned().unwrap_or(json!(null)),
-                })
+                        .unwrap_or_else(|| {
+                            if id_val == json!(-1) {               // pelota
+                                json!(0)
+                            } else {
+                                json!(t.id_usuario)                // ficha del jugador activo
+                            }
+                        });
+
+                    json!({
+                        "id"             : id_val,
+                        "id_usuario_real": owner,
+                        "x"              : p.get("x").cloned().unwrap_or(json!(null)),
+                        "y"              : p.get("y").cloned().unwrap_or(json!(null)),
                     })
-                    .collect();
+                })
+                .collect();
 
-                t.jugada = json!({ "piezas": enriched });
-            } else {
-                tracing::warn!(
-            "⚠️ Turno #{} no tiene piezas válidas. Jugada original: {:?}",
-            t.numero_turno,
-            t.jugada
-        );
-            }
+            t.jugada = json!({ "piezas": enriched });
+        } else {
+            tracing::warn!(
+                "⚠️ Turno #{} sin piezas válidas (jugada original = {:?})",
+                t.numero_turno,
+                t.jugada
+            );
         }
-
-        let snapshot = Snapshot {
-            estado: "playing".to_string(),
-            marcador,
-            formaciones,
-            turnos,
-            proximo_turno: partida_data.turno_actual.unwrap_or(0),
-            nombre_jugador_1: nombres.nombre_jugador_1,
-            nombre_jugador_2: nombres.nombre_jugador_2,
-        };
-
-        if let Ok(json_str) = serde_json::to_string(&snapshot) {
-            save_last_snapshot(id_partida, json_str);
-        }
-
-        tracing::info!("✅ Snapshot de partida {} generado con éxito", id_partida);
-        Ok(snapshot)
     }
 
+    /* ───── 4. Empaquetar snapshot completo ───── */
+    let snapshot = Snapshot {
+        estado: "playing".into(),
+        marcador: (
+            partida_data.gol_j1.unwrap_or(0),
+            partida_data.gol_j2.unwrap_or(0),
+        ),
+        formaciones,
+        turnos,
+        proximo_turno: partida_data.turno_actual.unwrap_or(0),
+        nombre_jugador_1: nombres.nombre_jugador_1,
+        nombre_jugador_2: nombres.nombre_jugador_2,
+    };
 
-    #[axum::debug_handler]
+    if let Ok(s) = serde_json::to_string(&snapshot) {
+        save_last_snapshot(id_partida, s);
+    }
+
+    tracing::info!("✅ Snapshot de partida {id_partida} generado");
+    Ok(snapshot)
+}
+
+
+
+#[axum::debug_handler]
     pub async fn get_partidas_pendientes(
         Path(id_usuario): Path<i32>,
         Extension(pool): Extension<MySqlPool>,

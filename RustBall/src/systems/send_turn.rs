@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use serde::Serialize;
 use serde_json::json;
-use crate::events::LocalTurnFinishedEvent;
 
+use crate::events::LocalTurnFinishedEvent;
 use crate::{
-    components::PlayerDisk,
-    resources::{BackendInfo, TurnState},
+    components::{PlayerDisk, Ball},      // ⬅️  ahora también la pelota
+    resources::BackendInfo,
     snapshot::{NextTurn, MyTurn},
 };
 
@@ -26,20 +26,21 @@ pub struct TurnPayload {
    1. Armar payload al terminar el movimiento
    ────────────────────────────────────────── */
 pub fn send_turn_to_backend(
-    mut ev_end   : EventReader<LocalTurnFinishedEvent>,
-    backend      : Res<BackendInfo>,
-    // TurnState ya no se usa; fuera para evitar warnings
-    next_turn    : Option<Res<NextTurn>>,          // ← opcional
-    query        : Query<(Entity, &Transform, &PlayerDisk)>,
-    mut commands : Commands,
+    mut ev_end : EventReader<LocalTurnFinishedEvent>,
+    backend    : Res<BackendInfo>,
+    next_turn  : Option<Res<NextTurn>>,                       // ← sólo si existe
+    q_disks    : Query<(Entity, &Transform, &PlayerDisk)>,
+    q_ball     : Query<&Transform, With<Ball>>,               // ← pelota
+    mut commands: Commands,
 ) {
-    // Si aún no llegó el primer snapshot salimos en silencio
+    // Aún no llegó el primer snapshot ⇒ salimos
     let Some(next_turn) = next_turn else { return };
 
     for _ in ev_end.read() {
         info!("📤 TurnFinished — UID {}", backend.my_uid);
 
-        let piezas: Vec<_> = query
+        // 1-A) fichas de ambos jugadores
+        let mut piezas: Vec<_> = q_disks
             .iter()
             .map(|(e, tf, disk)| json!({
                 "id"             : e.index(),
@@ -49,22 +50,35 @@ pub fn send_turn_to_backend(
             }))
             .collect();
 
+        // 1-B) pelota (si existe en el mundo)
+        if let Ok(tf) = q_ball.get_single() {
+            piezas.push(json!({
+                "id"             : -1,      // id reservado para la bola
+                "id_usuario_real": 0,
+                "x"              : tf.translation.x,
+                "y"              : tf.translation.y
+            }));
+        }
+
         if piezas.is_empty() {
             warn!("⚠️ No se encontraron piezas; no se enviará jugada.");
             return;
         }
 
+        // 1-C) construir payload
         let payload = TurnPayload {
             id_partida   : backend.partida_id,
-            numero_turno : next_turn.0,     // ✔ usa el recurso ya desenrollado
+            numero_turno : next_turn.0,
             id_usuario   : backend.my_uid,
             jugada       : json!({ "piezas": piezas }),
         };
 
         info!("✅ Payload armado: {:?}", payload);
 
+        // encolar para envío inmediato
         commands.insert_resource(PendingTurn(Some(payload)));
-        commands.insert_resource(MyTurn(false));     // bloquear input
+        // bloquear input local hasta recibir el snapshot
+        commands.insert_resource(MyTurn(false));
     }
 }
 
@@ -76,12 +90,10 @@ use gloo_net::http::Request;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
 
-pub fn maybe_send_pending_turn(
-    mut pending: ResMut<PendingTurn>,
-) {
-    /* Tomamos (y retiramos) la jugada encolada */
+pub fn maybe_send_pending_turn(mut pending: ResMut<PendingTurn>) {
     if let Some(payload) = pending.0.take() {
         info!("📬 Enviando jugada al backend…");
+
         #[cfg(target_arch = "wasm32")]
         spawn_local(async move {
             let body = serde_json::to_string(&payload).unwrap();

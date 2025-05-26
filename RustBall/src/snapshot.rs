@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use crate::resources::BackendInfo;
 use crate::{
-    components::PlayerDisk,
+    components::{PlayerDisk, Ball},   // ← corchetes y dos nombres
     formation::spawn_formation_for,
     resources::{
         AppState, CurrentPlayerId, PlayerNames, Scores, TurnState,
@@ -27,7 +27,7 @@ pub struct MyTurn(pub bool);
 /* ───────────── Modelos JSON que llegan del backend ───────────── */
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PiezaPos {
-    pub id: u32,
+    pub id: i32,
     pub x: f32,
     pub y: f32,
     #[serde(default)]
@@ -113,6 +113,7 @@ pub fn snapshot_apply_system(
     mut ts               : ResMut<TurnState>,
     mut ultimo_turno     : ResMut<UltimoTurnoAplicado>,
     mut current_player_id: ResMut<CurrentPlayerId>,
+    q_ball              : Query<Entity, With<Ball>>,
     q_disks              : Query<Entity, With<PlayerDisk>>,
     state                : Res<State<AppState>>,
     mut next_state       : ResMut<NextState<AppState>>,
@@ -154,11 +155,13 @@ pub fn snapshot_apply_system(
                 mapped,
                 &mut commands,
                 backend_info.clone(),
-                q_disks,
+                q_disks,          // fichas
+                q_ball,           // ← nuevo
                 snap.proximo_turno,
                 player_names.map(|r| (*r).clone()),
                 &asset_server,
             );
+
 
             commands.insert_resource(NextTurn(last.numero_turno + 1));
         } else {
