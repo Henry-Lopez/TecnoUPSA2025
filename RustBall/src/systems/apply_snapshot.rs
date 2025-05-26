@@ -39,8 +39,8 @@ pub fn apply_board_snapshot(
     for e in &existing_disks {
         commands.entity(e).despawn_recursive();
     }
-    if let Ok(ball) = existing_ball.get_single() {
-        commands.entity(ball).despawn_recursive();
+    for entity in existing_ball.iter() {
+        commands.entity(entity).despawn_recursive();
     }
 
     /* ─── 2. Recursos comunes (texturas + damping) ────────────────── */
@@ -71,8 +71,8 @@ pub fn apply_board_snapshot(
                     ..default()
                 },
                 RigidBody::Dynamic,
-                Collider::ball(24.0),
-                Restitution::coefficient(0.6),
+                Collider::ball(20.0),
+                Restitution::coefficient(1.0),
                 ActiveEvents::COLLISION_EVENTS,
                 Velocity::zero(),
                 damping.clone(),
