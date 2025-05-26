@@ -1,3 +1,22 @@
+// ─────────────────────────────────────────────────────────────
+// handlers.rs  (al principio del fichero, antes de cualquier use o fn)
+// ─────────────────────────────────────────────────────────────
+// handlers.rs  ── ANTES de cualquier `use` o `fn`
+macro_rules! internal {
+    ($ctx:literal) => {
+        |e| {
+            // e implementa Debug siempre, Display no siempre
+            tracing::error!("❌ Error al {}: {:?}", $ctx, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Error al {}: {:?}", $ctx, e),
+            )
+        }
+    };
+}
+
+// Si lo pones aquí, todos los handlers ya lo tienen disponible.
+
     use axum::{
         extract::{Extension, Path},
         http::StatusCode,
@@ -10,148 +29,104 @@
     use crate::models::*; // Asegúrate de que tus modelos están en scope
     use tracing; // Asegúrate de que tracing está en scope
 
-    #[axum::debug_handler]
-    pub async fn post_jugada(
-        Extension(pool): Extension<MySqlPool>,
-        Extension(tx): Extension<broadcast::Sender<String>>,
-        Json(payload): Json<JugadaPayload>,
-    ) -> Result<Json<&'static str>, (StatusCode, String)> {
-        tracing::info!("▶️  POST /jugada — Recibido payload: {:?}", payload);
+#[axum::debug_handler]
+pub async fn post_jugada(
+    Extension(pool): Extension<MySqlPool>,
+    Extension(tx):   Extension<broadcast::Sender<String>>,
+    Json(payload):   Json<JugadaPayload>,
+) -> Result<Json<&'static str>, (StatusCode, String)> {
+    tracing::info!("▶️  POST /jugada — Recibido payload: {:?}", payload);
 
-        let mut transaction = pool.begin().await.map_err(|e| {
-            tracing::error!("❌ Error al iniciar transacción: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al iniciar transacción: {}", e))
-        })?;
+    /* ───────────────────────── 1. VALIDAR + INSERTAR ───────────────────────── */
+    let mut tx_db = pool
+        .begin()
+        .await
+        .map_err(internal!("iniciar transacción"))?;
 
-        // Validar turno actual
-        let turno_actual: Option<i32> = sqlx::query_scalar!(
-        "SELECT turno_actual FROM Partida WHERE id_partida = ?",
-        payload.id_partida
+    // 1-A) comprobar que es su turno
+    let turno_actual: Option<i32> = sqlx::query_scalar!(
+            "SELECT turno_actual FROM Partida WHERE id_partida = ?",
+            payload.id_partida
+        )
+        .fetch_one(&mut *tx_db)
+        .await
+        .map_err(internal!("leer turno_actual"))?;
+
+    if turno_actual != Some(payload.id_usuario) {
+        tracing::warn!("⛔ usuario fuera de turno ({:?})", turno_actual);
+        return Err((StatusCode::BAD_REQUEST, "No es tu turno".into()));
+    }
+
+    // 1-B) nuevo número de turno (devuelve i64 → cast a i32)
+    let nuevo_turno_i64: i64 = sqlx::query_scalar!(
+            "SELECT COALESCE(MAX(numero_turno),0)+1 FROM Turno WHERE id_partida = ?",
+            payload.id_partida
+        )
+        .fetch_one(&mut *tx_db)
+        .await
+        .map_err(internal!("calcular numero_turno"))?;
+
+    let nuevo_turno: i32 = nuevo_turno_i64 as i32;
+
+    // 1-C) INSERT idempotente
+    sqlx::query!(
+        r#"
+        INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
+        VALUES (?,?,?,?)
+        ON DUPLICATE KEY UPDATE jugada = VALUES(jugada)
+        "#,
+        payload.id_partida,
+        nuevo_turno,
+        payload.id_usuario,
+        payload.jugada
     )
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ Error al consultar turno_actual: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al leer turno_actual: {}", e))
-            })?;
+        .execute(&mut *tx_db)
+        .await
+        .map_err(internal!("insertar turno"))?;
 
-        if turno_actual != Some(payload.id_usuario) {
-            tracing::warn!(
-            "⛔ Jugador {} intentó jugar fuera de turno. Turno actual: {:?}",
-            payload.id_usuario,
-            turno_actual
-        );
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "No es el turno del usuario {}. Turno actual: {:?}",
-                    payload.id_usuario, turno_actual
-                ),
-            ));
-        }
+    // 1-D) pasar turno al rival
+    let (j1, j2) = sqlx::query!(
+            "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
+            payload.id_partida
+        )
+        .fetch_one(&mut *tx_db)
+        .await
+        .map(|r| (r.id_jugador1, r.id_jugador2))
+        .map_err(internal!("leer jugadores"))?;
 
-        // Calcular nuevo número de turno
-        let max_turno_i64: i64 = sqlx::query_scalar!(
-        "SELECT COALESCE(MAX(numero_turno), 0) FROM Turno WHERE id_partida = ?",
-        payload.id_partida
-    )
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ Error al calcular MAX(numero_turno): {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Error interno al calcular número de turno".into())
-            })?;
+    let siguiente_turno = if payload.id_usuario == j1 { j2 } else { j1 };
 
-        let nuevo_turno = (max_turno_i64 as i32) + 1;
-
-        // Insertar jugada
-        // reemplaza el INSERT plano por uno idempotente
-        sqlx::query!(
-            r#"
-                INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
-                    VALUES (?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE jugada = VALUES(jugada)
-                        "#,
-                payload.id_partida,
-                nuevo_turno,
-                payload.id_usuario,
-                payload.jugada.clone()
-)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|e| {
-                let is_duplicate = e
-                    .as_database_error()
-                    .and_then(|d| d.code())
-                    .map(|c| c == "1062")
-                    .unwrap_or(false);
-
-                if is_duplicate {
-                    tracing::warn!("⚠️ Turno duplicado detectado");
-                    (StatusCode::CONFLICT, "Número de turno duplicado".into())
-                } else {
-                    tracing::error!("❌ Error al insertar turno: {:?}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("Error insertando turno: {}", e))
-                }
-            })?;
-
-        // Calcular siguiente turno
-        let (j1, j2) = sqlx::query!(
-        "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
-        payload.id_partida
-    )
-            .fetch_one(&mut *transaction)
-            .await
-            .map(|r| (r.id_jugador1, r.id_jugador2))
-            .map_err(|e| {
-                tracing::error!("❌ Error al obtener jugadores: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al obtener jugadores: {}", e))
-            })?;
-
-        let siguiente_turno = if payload.id_usuario == j1 { j2 } else { j1 };
-
-        sqlx::query!(
+    sqlx::query!(
         "UPDATE Partida SET turno_actual = ? WHERE id_partida = ?",
         siguiente_turno,
         payload.id_partida
     )
-            .execute(&mut *transaction)
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ Error al actualizar turno_actual: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al actualizar turno_actual: {}", e))
-            })?;
+        .execute(&mut *tx_db)
+        .await
+        .map_err(internal!("actualizar turno_actual"))?;
 
-        // Confirmar transacción
-        transaction.commit().await.map_err(|e| {
-            tracing::error!("❌ Error al confirmar transacción: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Error al confirmar: {}", e))
-        })?;
+    tx_db
+        .commit()
+        .await
+        .map_err(internal!("confirmar transacción"))?;
 
-        // Generar snapshot
-        let snap = super::get_snapshot(payload.id_partida, pool.clone())
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ Error al generar snapshot: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Error generando snapshot".into())
-            })?;
+    /* ───────────────────────── 2. ENVIAR SNAPSHOT ───────────────────────── */
+    let snap = super::get_snapshot(payload.id_partida, pool.clone())
+        .await
+        .map_err(internal!("generar snapshot"))?;
 
-        // Enviar snapshot por WebSocket
-        let msg = serde_json::json!({
+    let ws_msg = serde_json::json!({
         "uid_origen": payload.id_usuario,
-        "tipo": "snapshot",
-        "contenido": snap
+        "tipo"      : "snapshot",
+        "contenido" : snap
     });
 
-        if let Err(e) = tx.send(msg.to_string()) {
-            tracing::warn!("📢 No hay oyentes para snapshot: {}", e);
-        }
-
-        Ok(Json("Turno registrado"))
+    if let Err(e) = tx.send(ws_msg.to_string()) {
+        tracing::warn!("📢 No hay oyentes para snapshot: {e}");
     }
 
-
-
+    Ok(Json("Turno registrado"))
+}
 
     // 2. GET /estado/:id_partida
     #[axum::debug_handler]
@@ -723,15 +698,20 @@
         for t in &mut turnos {
             if let Some(arr) = t.jugada.get("piezas").and_then(|v| v.as_array()) {
                 let enriched: Vec<_> = arr
-                    .iter()
-                    .map(|p| {
+                            .iter()
+                            .map(|p| {
                         json!({
+                        // copiamos el id que ya venía en la jugada (necesario para el cliente)
+                        "id"            : p.get("id").cloned().unwrap_or(json!(null)),
+                        // añadimos el propietario real de la pieza
                         "id_usuario_real": t.id_usuario,
-                        "x": p.get("x").unwrap_or(&json!(null)),
-                        "y": p.get("y").unwrap_or(&json!(null))
-                    })
+                        // coordenadas
+                        "x"             : p.get("x").cloned().unwrap_or(json!(null)),
+                        "y"             : p.get("y").cloned().unwrap_or(json!(null)),
+                            })
                     })
                     .collect();
+
                 t.jugada = json!({ "piezas": enriched });
             } else {
                 tracing::warn!(

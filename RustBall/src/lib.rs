@@ -311,6 +311,7 @@ pub fn main_internal() {
         .insert_resource(PowerUpControl::default())
         .insert_resource(EventControl::default())
         .insert_resource(snapshot::MyTurn::default())
+        .insert_resource(snapshot::NextTurn(0))   //  ← NUEVO
         .insert_resource(PendingTurn::default())
         .insert_resource(CurrentPlayerId::default())
         .insert_resource(poll_turn::PollState::default())

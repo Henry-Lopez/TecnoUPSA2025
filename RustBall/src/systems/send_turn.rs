@@ -28,15 +28,17 @@ pub struct TurnPayload {
 pub fn send_turn_to_backend(
     mut ev_end   : EventReader<LocalTurnFinishedEvent>,
     backend      : Res<BackendInfo>,
-    _turn_state  : Res<TurnState>,
-    next_turn    : Res<NextTurn>,
+    // TurnState ya no se usa; fuera para evitar warnings
+    next_turn    : Option<Res<NextTurn>>,          // ← opcional
     query        : Query<(Entity, &Transform, &PlayerDisk)>,
     mut commands : Commands,
 ) {
+    // Si aún no llegó el primer snapshot salimos en silencio
+    let Some(next_turn) = next_turn else { return };
+
     for _ in ev_end.read() {
         info!("📤 TurnFinished — UID {}", backend.my_uid);
 
-        /* Posiciones actuales de TODAS las fichas */
         let piezas: Vec<_> = query
             .iter()
             .map(|(e, tf, disk)| json!({
@@ -53,19 +55,16 @@ pub fn send_turn_to_backend(
         }
 
         let payload = TurnPayload {
-            id_partida : backend.partida_id,
-            numero_turno: next_turn.0,
-            id_usuario : backend.my_uid,
-            jugada     : json!({ "piezas": piezas }),
+            id_partida   : backend.partida_id,
+            numero_turno : next_turn.0,     // ✔ usa el recurso ya desenrollado
+            id_usuario   : backend.my_uid,
+            jugada       : json!({ "piezas": piezas }),
         };
 
         info!("✅ Payload armado: {:?}", payload);
 
-        /* Guarda en recurso global → lo enviará `maybe_send_pending_turn` */
         commands.insert_resource(PendingTurn(Some(payload)));
-
-        /* Desactiva input local hasta próximo snapshot */
-        commands.insert_resource(MyTurn(false));
+        commands.insert_resource(MyTurn(false));     // bloquear input
     }
 }
 
