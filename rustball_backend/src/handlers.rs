@@ -655,7 +655,7 @@ pub async fn post_jugada(
                 marcador: (0, 0),
                 formaciones,
                 turnos: vec![],
-                proximo_turno: Some(0),
+                proximo_turno: 0,
                 nombre_jugador_1: nombres.nombre_jugador_1,
                 nombre_jugador_2: nombres.nombre_jugador_2,
             };
@@ -697,28 +697,31 @@ pub async fn post_jugada(
 
         for t in &mut turnos {
             if let Some(arr) = t.jugada.get("piezas").and_then(|v| v.as_array()) {
+                // ───── copiar pieza por pieza sin perder su propietario real ─────
                 let enriched: Vec<_> = arr
-                            .iter()
-                            .map(|p| {
+                    .iter()
+                    .map(|p| {
                         json!({
-                        // copiamos el id que ya venía en la jugada (necesario para el cliente)
-                        "id"            : p.get("id").cloned().unwrap_or(json!(null)),
-                        // añadimos el propietario real de la pieza
-                        "id_usuario_real": t.id_usuario,
-                        // coordenadas
-                        "x"             : p.get("x").cloned().unwrap_or(json!(null)),
-                        "y"             : p.get("y").cloned().unwrap_or(json!(null)),
-                            })
+                    // id tal cual venía
+                    "id" : p.get("id").cloned().unwrap_or(json!(null)),
+                    // si ya trae id_usuario_real lo dejamos; si no, usamos t.id_usuario
+                    "id_usuario_real": p
+                        .get("id_usuario_real")
+                        .cloned()
+                        .unwrap_or(json!(t.id_usuario)),
+                    "x" : p.get("x").cloned().unwrap_or(json!(null)),
+                    "y" : p.get("y").cloned().unwrap_or(json!(null)),
+                })
                     })
                     .collect();
 
                 t.jugada = json!({ "piezas": enriched });
             } else {
                 tracing::warn!(
-                "⚠️ Turno #{} no tiene piezas válidas. Jugada original: {:?}",
-                t.numero_turno,
-                t.jugada
-            );
+            "⚠️ Turno #{} no tiene piezas válidas. Jugada original: {:?}",
+            t.numero_turno,
+            t.jugada
+        );
             }
         }
 
@@ -727,7 +730,7 @@ pub async fn post_jugada(
             marcador,
             formaciones,
             turnos,
-            proximo_turno: partida_data.turno_actual,
+            proximo_turno: partida_data.turno_actual.unwrap_or(0),
             nombre_jugador_1: nombres.nombre_jugador_1,
             nombre_jugador_2: nombres.nombre_jugador_2,
         };

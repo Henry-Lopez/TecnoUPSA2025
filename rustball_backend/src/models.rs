@@ -83,7 +83,7 @@ pub struct Snapshot {
     pub marcador: (i32, i32),
     pub formaciones: Vec<FormacionData>,
     pub turnos: Vec<TurnoData>,
-    pub proximo_turno: Option<i32>,
+    pub proximo_turno: i32,
     pub nombre_jugador_1: String,
     pub nombre_jugador_2: String,
 }
