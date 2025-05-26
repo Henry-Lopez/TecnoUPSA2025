@@ -3,7 +3,6 @@
         http::StatusCode,
         Json,
     };
-    use futures_util::TryFutureExt;
     use serde::Deserialize;
     use serde_json::json; // Asegúrate de que esto está importado
     use sqlx::{MySqlPool}; // Mantendremos las importaciones que tenías si las quieres
@@ -66,16 +65,18 @@
         let nuevo_turno = (max_turno_i64 as i32) + 1;
 
         // Insertar jugada
+        // reemplaza el INSERT plano por uno idempotente
         sqlx::query!(
-        r#"
-        INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
-        VALUES (?, ?, ?, ?)
-        "#,
-        payload.id_partida,
-        nuevo_turno,
-        payload.id_usuario,
-        payload.jugada.clone()
-    )
+            r#"
+                INSERT INTO Turno (id_partida, numero_turno, id_usuario, jugada)
+                    VALUES (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE jugada = VALUES(jugada)
+                        "#,
+                payload.id_partida,
+                nuevo_turno,
+                payload.id_usuario,
+                payload.jugada.clone()
+)
             .execute(&mut *transaction)
             .await
             .map_err(|e| {

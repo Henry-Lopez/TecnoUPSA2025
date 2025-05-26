@@ -21,6 +21,8 @@ mod snapshot;
 use bevy::asset::AssetMetaCheck;
 use once_cell::sync::OnceCell;
 use powerup::*;
+use crate::snapshot::MyTurn;
+use crate::events::LocalTurnFinishedEvent;
 
 use crate::resources::WsInbox;
 
@@ -34,7 +36,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 // ─────────────── USE ESPECÍFICOS DEL JUEGO ─────────────────────────
 use crate::components::{PlayerDisk, PowerUpLabel};
-use crate::events::{FormationChosenEvent, TurnFinishedEvent};
+use crate::events::{FormationChosenEvent};
 use crate::zone::apply_zone_effects;
 
 
@@ -378,7 +380,7 @@ pub fn main_internal() {
     // ───────── Eventos globales ─────────────────────────────────────────
     app.add_event::<GoalEvent>()
         .add_event::<FormationChosenEvent>()
-        .add_event::<TurnFinishedEvent>();
+        .add_event::<LocalTurnFinishedEvent>();
 
     // ───────── STARTUP ──────────────────────────────────────────────────
     app.add_systems(Startup, insert_backend_info)
@@ -442,7 +444,7 @@ pub fn main_internal() {
         .add_systems(OnExit(AppState::InGame), stop_ingame_music);
 
     // ───────── SISTEMAS PRINCIPALES (snapshot y turno) ──────────────────
-    app.configure_set(Update, SendTurnSet.after(CheckTurnEndSet));
+    app.configure_sets(Update, SendTurnSet.after(CheckTurnEndSet));
 
     app.add_systems(
         Update,
@@ -482,6 +484,8 @@ pub fn main_internal() {
                 detect_goal,
                 handle_goal,
             )
+                // ➜ NUEVO FILTRO
+                .run_if(|t: Res<MyTurn>| t.0)          // ← solo si MyTurn == true
                 .run_if(in_state(AppState::InGame)),
         )
         .add_systems(

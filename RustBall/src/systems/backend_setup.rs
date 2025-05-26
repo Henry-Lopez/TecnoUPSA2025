@@ -5,9 +5,6 @@ use crate::resources::BackendInfo;
 use web_sys::window;
 
 #[cfg(target_arch = "wasm32")]
-use crate::INIT;
-
-#[cfg(target_arch = "wasm32")]
 pub fn insert_backend_info(mut commands: Commands) {
     let ls_val = |key: &str| -> String {
         window()

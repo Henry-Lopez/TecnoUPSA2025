@@ -54,7 +54,7 @@ pub use send_turn::{
 pub use apply_snapshot::apply_board_snapshot;
 
 // — Polling (turnos) ───────────────────────────────────────────────────
-pub use poll_turn::{poll_turn_tick_system, handle_turn_finished_event};
+pub use poll_turn::{poll_turn_tick_system};
 
 // — WebSocket (mensajes entrantes) ─────────────────────────────────────
 pub use process_ws::process_ws_messages;

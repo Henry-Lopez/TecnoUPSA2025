@@ -19,6 +19,8 @@ pub struct FormationChosenEvent {
 }
 
 #[derive(Event)]
-pub struct TurnFinishedEvent;
+pub struct LocalTurnFinishedEvent;   // disparado por el cliente cuando termina su movimiento
 
+#[derive(Event)]
+pub struct RemoteTurnArrivedEvent;   // disparado por el polling / websocket al recibir turno rival
 

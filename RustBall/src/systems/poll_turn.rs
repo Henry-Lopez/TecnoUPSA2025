@@ -1,27 +1,30 @@
+//! src/systems/poll_turn.rs   (nuevo nombre sugerido)
+
+// ╭─────────────────────────── Imports ───────────────────────────╮
 use bevy::prelude::*;
 use gloo_net::http::Request;
 use std::{
     sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
     time::Duration,
 };
 use wasm_bindgen_futures::spawn_local;
 
 use crate::{
-    events::TurnFinishedEvent,
     resources::BackendInfo,
     snapshot::{MyTurn, TurnoData},
 };
 
+#[cfg(target_arch = "wasm32")]
+use crate::snapshot::{set_game_state, SnapshotFromServer};
+// ╰───────────────────────────────────────────────────────────────╯
+
 /* ────────────── Recurso global ────────────── */
 #[derive(Resource, Clone)]
 pub struct PollState {
-    timer: Timer,                        // ⏲️ Temporizador de 3s
-    last_turn_number: Arc<Mutex<i32>>,   // 🔁 Último turno recibido
-    notify: Arc<AtomicBool>,             // 🚩 Flag para notificar nuevo turno
+    timer: Timer,                        // ⏲️ Temporizador de 3 s
+    last_turn_number: Arc<Mutex<i32>>,   // 🔁 Último turno procesado
 }
 
 impl Default for PollState {
@@ -29,86 +32,69 @@ impl Default for PollState {
         Self {
             timer: Timer::new(Duration::from_secs(3), TimerMode::Repeating),
             last_turn_number: Arc::new(Mutex::new(0)),
-            notify: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
-/* ────────────── Sistema de polling ────────────── */
+/* ────────────── Sistema de polling ──────────────
+   • Si ES mi turno  → resetea timer y no consulta nada.
+   • Si NO es mi turno
+        – cada 3 s pide /api/estado
+        – si detecta turno nuevo ⇒ pide /api/snapshot
+        – aplica el snapshot con set_game_state
+   Nótese que **ya no emite eventos**: el snapshot es suficiente
+   para que el resto de la app (snapshot_apply_system) actualice
+   MyTurn, tablero, marcador, etc.
+   -------------------------------------------------------------- */
 pub fn poll_turn_tick_system(
     mut state: ResMut<PollState>,
     time: Res<Time>,
     my_turn: Res<MyTurn>,
     backend_opt: Option<Res<BackendInfo>>,
-    mut writer: EventWriter<TurnFinishedEvent>,
 ) {
-    // 0) Si hay una nueva jugada detectada por el async, disparamos el evento
-    if state.notify.swap(false, Ordering::Acquire) {
-        writer.send(TurnFinishedEvent);
-    }
-
-    // 1) Sin información del backend, salimos
+    // 1) Sin datos de backend ⇒ salir.
     let backend = match backend_opt {
         Some(b) => b,
         None => return,
     };
 
-    // 2) Si es mi turno, reinicio el timer pero no hago polling
+    // 2) Si es MI turno ⇒ reinicio timer y no hago polling.
     if my_turn.0 {
         state.timer.reset();
         return;
     }
 
-    // 3) Avanzar el timer
+    // 3) Avanzar el timer; si aún no venció, nada que hacer.
     state.timer.tick(time.delta());
     if !state.timer.finished() {
         return;
     }
 
-    // 4) Ejecutar el polling async
-    let pid = backend.partida_id;
-    let notify_flag = Arc::clone(&state.notify);
-    let last_turn_ref = Arc::clone(&state.last_turn_number);
+    // 4) Polling asíncrono.
+    let pid            = backend.partida_id;
+    let uid            = backend.my_uid;
+    let last_turn_ref  = Arc::clone(&state.last_turn_number);
 
     spawn_local(async move {
+        // 4-A) Consultar estado resumido de los turnos.
         if let Ok(resp) = Request::get(&format!("/api/estado/{pid}")).send().await {
             if let Ok(turnos) = resp.json::<Vec<TurnoData>>().await {
                 if let Some(ultimo) = turnos.last() {
                     let mut last = last_turn_ref.lock().unwrap();
                     if ultimo.numero_turno > *last {
-                        notify_flag.store(true, Ordering::Release);
-                        *last = ultimo.numero_turno;
+                        *last = ultimo.numero_turno; // actualizar memoria
+
+                        // 4-B) Hay turno nuevo ⇒ pedir snapshot completo.
+                        if let Ok(r) = Request::get(&format!("/api/snapshot/{pid}")).send().await {
+                            if let Ok(snap) = r.json::<SnapshotFromServer>().await {
+                                if let Ok(json_str) = serde_json::to_string(&snap) {
+                                    set_game_state(&json_str, uid);
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     });
-}
-
-/* ────────────── Aplicar snapshot al recibir TurnFinishedEvent ────────────── */
-#[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-pub fn handle_turn_finished_event(
-    mut reader: EventReader<TurnFinishedEvent>,
-    backend: Option<Res<BackendInfo>>,
-) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use crate::snapshot::{set_game_state, SnapshotFromServer};
-
-        if reader.read().next().is_some() {
-            if let Some(b) = backend {
-                let pid = b.partida_id;
-                let uid = b.my_uid;
-
-                spawn_local(async move {
-                    if let Ok(resp) = Request::get(&format!("/api/snapshot/{}", pid)).send().await {
-                        if let Ok(snapshot) = resp.json::<SnapshotFromServer>().await {
-                            let json = serde_json::to_string(&snapshot).unwrap();
-                            set_game_state(&json, uid); // ✅ ← uso correcto con referencia
-                        }
-                    }
-                });
-            }
-        }
-    }
 }

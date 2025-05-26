@@ -8,10 +8,9 @@ pub struct CheckTurnEndSet;
 
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
-
+use crate::events::LocalTurnFinishedEvent;
 
 use crate::components::*;
-use crate::events::TurnFinishedEvent;
 use crate::powerup::PowerUpControl;
 use crate::resources::*;
 use crate::snapshot::MyTurn;
@@ -207,7 +206,7 @@ pub fn check_turn_end(
     mut sprites: Query<&mut Sprite>,
     mut powerup_control: ResMut<PowerUpControl>,
     mut event_control: ResMut<EventControl>,
-    mut turn_finished: EventWriter<TurnFinishedEvent>,
+    mut turn_finished: EventWriter<LocalTurnFinishedEvent>,
 ) {
     // ✅ Seguridad: salimos si ya no estamos en movimiento
     if !turn_state.in_motion {
@@ -241,13 +240,13 @@ pub fn check_turn_end(
 
     // 🪵 Log importante de control
     info!(
-        "🔁 Fin de turno — PU: {}, EV: {} — TurnFinishedEvent ENVIADO",
+        "🔁 Fin de turno — PU: {}, EV: {} — LocalTurnFinishedEvent ENVIADO",
         powerup_control.turns_since_last,
         event_control.turns_since_last
     );
 
     // 🚨 ¡Aquí puede disparar múltiples veces si hay sistemas duplicados!
-    turn_finished.send(TurnFinishedEvent);
+    turn_finished.send(LocalTurnFinishedEvent);
 }
 
 

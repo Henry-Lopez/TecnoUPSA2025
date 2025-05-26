@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 use serde::Serialize;
 use serde_json::json;
+use crate::events::LocalTurnFinishedEvent;
 
 use crate::{
     components::PlayerDisk,
-    events::TurnFinishedEvent,
     resources::{BackendInfo, TurnState},
     snapshot::{NextTurn, MyTurn},
 };
@@ -26,7 +26,7 @@ pub struct TurnPayload {
    1. Armar payload al terminar el movimiento
    ────────────────────────────────────────── */
 pub fn send_turn_to_backend(
-    mut ev_end   : EventReader<TurnFinishedEvent>,
+    mut ev_end   : EventReader<LocalTurnFinishedEvent>,
     backend      : Res<BackendInfo>,
     _turn_state  : Res<TurnState>,
     next_turn    : Res<NextTurn>,
