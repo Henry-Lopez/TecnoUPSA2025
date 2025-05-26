@@ -133,10 +133,10 @@ pub fn snapshot_apply_system(
         right_name: snap.nombre_jugador_2.clone(),
     });
 
-    // if snap.proximo_turno == ultimo_turno.0 {
-    //     warn!("⏩ Snapshot ignorado: mismo turno que el último aplicado ({})", snap.proximo_turno);
-    //     return;
-    // }
+     if snap.proximo_turno == ultimo_turno.0 {
+        warn!("⏩ Snapshot ignorado: mismo turno que el último aplicado ({})", snap.proximo_turno);
+         return;
+     }
 
     ultimo_turno.0 = snap.proximo_turno;
 

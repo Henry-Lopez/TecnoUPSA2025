@@ -65,7 +65,7 @@ pub fn apply_board_snapshot(
                     texture   : tex_ball.clone(),
                     transform : Transform::from_xyz(x, y, 12.0),
                     sprite    : Sprite {
-                        custom_size: Some(Vec2::splat(48.0)),
+                        custom_size: Some(Vec2::splat(40.0)),
                         ..default()
                     },
                     ..default()
