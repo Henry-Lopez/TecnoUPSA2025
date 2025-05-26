@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::events::LocalTurnFinishedEvent;
 use crate::{
-    components::{PlayerDisk, Ball},      // ⬅️  ahora también la pelota
+    components::{PlayerDisk, Ball},      // Pelota incluida
     resources::BackendInfo,
     snapshot::{NextTurn, MyTurn},
 };
@@ -28,18 +28,17 @@ pub struct TurnPayload {
 pub fn send_turn_to_backend(
     mut ev_end : EventReader<LocalTurnFinishedEvent>,
     backend    : Res<BackendInfo>,
-    next_turn  : Option<Res<NextTurn>>,                       // ← sólo si existe
+    next_turn  : Option<Res<NextTurn>>,
     q_disks    : Query<(Entity, &Transform, &PlayerDisk)>,
-    q_ball     : Query<&Transform, With<Ball>>,               // ← pelota
+    q_ball     : Query<&Transform, With<Ball>>,
     mut commands: Commands,
 ) {
-    // Aún no llegó el primer snapshot ⇒ salimos
     let Some(next_turn) = next_turn else { return };
 
-    for _ in ev_end.read() {
+    for _ in ev_end.iter() {
         info!("📤 TurnFinished — UID {}", backend.my_uid);
 
-        // 1-A) fichas de ambos jugadores
+        // 1-A) Obtener fichas con posiciones y dueño real
         let mut piezas: Vec<_> = q_disks
             .iter()
             .map(|(e, tf, disk)| json!({
@@ -50,10 +49,10 @@ pub fn send_turn_to_backend(
             }))
             .collect();
 
-        // 1-B) pelota (si existe en el mundo)
+        // 1-B) Añadir pelota si existe en escena
         if let Ok(tf) = q_ball.get_single() {
             piezas.push(json!({
-                "id"             : -1,      // id reservado para la bola
+                "id"             : -1,      // id reservado para pelota
                 "id_usuario_real": 0,
                 "x"              : tf.translation.x,
                 "y"              : tf.translation.y
@@ -65,7 +64,7 @@ pub fn send_turn_to_backend(
             return;
         }
 
-        // 1-C) construir payload
+        // 1-C) Construir payload JSON completo
         let payload = TurnPayload {
             id_partida   : backend.partida_id,
             numero_turno : next_turn.0,
@@ -75,9 +74,9 @@ pub fn send_turn_to_backend(
 
         info!("✅ Payload armado: {:?}", payload);
 
-        // encolar para envío inmediato
+        // Encolar para envío inmediato
         commands.insert_resource(PendingTurn(Some(payload)));
-        // bloquear input local hasta recibir el snapshot
+        // Bloquear input local hasta recibir snapshot del backend
         commands.insert_resource(MyTurn(false));
     }
 }

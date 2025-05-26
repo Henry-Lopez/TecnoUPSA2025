@@ -62,10 +62,10 @@ pub fn apply_board_snapshot(
         if id == -1 {
             commands.spawn((
                 SpriteBundle {
-                    texture   : tex_ball.clone(),
-                    transform : Transform::from_xyz(x, y, 12.0),
-                    sprite    : Sprite {
-                        custom_size: Some(Vec2::splat(40.0)),
+                    texture: tex_ball.clone(),
+                    transform: Transform::from_xyz(x, y, 12.0),
+                    sprite: Sprite {
+                        custom_size: Some(Vec2::splat(48.0)),
                         ..default()
                     },
                     ..default()
@@ -83,7 +83,6 @@ pub fn apply_board_snapshot(
             ));
             continue;
         }
-
         /* ───── Ficha de jugador ───── */
         let uid_real = id_usuario_real;
         let is_left  = uid_real == backend_info.id_left;
