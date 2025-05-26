@@ -102,7 +102,7 @@ function initWebSocket(partidaId, userId) {
             const data = JSON.parse(event.data);
             const uidLocal = Number(localStorage.getItem("rb_uid"));
 
-            if (data.uid_origen === uidLocal) return;
+            if (data.uid_origen === uidLocal && data.tipo !== "snapshot") return;
 
             if (data.tipo === "snapshot") {
                 console.log("📦 Snapshot reenviado recibido");

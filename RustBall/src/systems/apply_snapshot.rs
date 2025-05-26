@@ -39,8 +39,8 @@ pub fn apply_board_snapshot(
     for e in &existing_disks {
         commands.entity(e).despawn_recursive();
     }
-    for entity in existing_ball.iter() {
-        commands.entity(entity).despawn_recursive();
+    for e in existing_ball.iter() {
+        commands.entity(e).despawn_recursive();
     }
 
     /* ─── 2. Recursos comunes (texturas + damping) ────────────────── */
