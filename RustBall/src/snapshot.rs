@@ -87,12 +87,19 @@ pub fn set_game_state(json_str: &str, uid: i32) {
         Ok(snap) => {
             web_sys::console::log_1(&"✅ SnapshotFromServer parseado con éxito".into());
 
-            if snap.estado != "playing" {
-                warn!("⏳ Partida no está en estado 'playing'. Ignorando snapshot.");
+            // ────────────────────────────────────────────────────────────────
+            //  Aceptamos snapshots tanto de “playing” como de “waiting”.
+            //  Cualquier otro estado se descarta.
+            // ────────────────────────────────────────────────────────────────
+            if snap.estado != "playing" && snap.estado != "waiting" {
+                warn!(
+                    "⏳ Snapshot en estado desconocido ({}) – ignorado",
+                    snap.estado
+                );
                 return;
             }
 
-            // deduplicación por número de turno real
+            // ── Deduplicación por número de turno real ─────────────────────
             let mut last = LAST_TURNO_NUM.lock().unwrap();
             if snap.ultimo_turno <= *last {
                 warn!(
@@ -103,14 +110,18 @@ pub fn set_game_state(json_str: &str, uid: i32) {
             }
             *last = snap.ultimo_turno;
 
+            //  Encolar para que snapshot_apply_system lo procese
             APP_STATE.with(|c| *c.borrow_mut() = Some((snap, uid)));
             info!("✅ Snapshot #{} en cola para aplicar", *last);
         }
         Err(e) => {
-            web_sys::console::error_1(&format!("❌ Error al parsear snapshot JSON: {e:?}").into());
+            web_sys::console::error_1(
+                &format!("❌ Error al parsear snapshot JSON: {e:?}").into(),
+            );
         }
     }
 }
+
 
 /* -------------------------------------------------------------------------- */
 /*  Sistema Bevy que aplica el snapshot cuando está en cola                   */
