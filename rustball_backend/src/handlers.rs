@@ -566,12 +566,14 @@
 
         /* 2. resetear partida  ------------------------------------------------- */
         sqlx::query!(
-        "UPDATE Partida SET estado='waiting', turno_actual=0 WHERE id_partida = ?",
-        p.id_partida
-    )
+    // ←──────  ⬇️  ahora turno_actual = NULL  (antes era 0)
+    "UPDATE Partida SET estado = 'waiting', turno_actual = NULL WHERE id_partida = ?",
+    p.id_partida
+)
             .execute(&pool)
             .await
             .map_err(internal!("poner estado=waiting"))?;
+
 
         sqlx::query!("DELETE FROM FormacionElegida WHERE id_partida = ?", p.id_partida)
             .execute(&pool)
@@ -623,7 +625,7 @@
     ) -> Result<Snapshot, (StatusCode, String)> {
         tracing::info!("▶️ Generando snapshot de partida {id_partida}");
 
-        /* ───────────────────────── 1. Cabecera de la partida ─────────────────── */
+        /* ───────────── 1. Cabecera de la partida ───────────── */
         let partida_data = sqlx::query!(
         r#"
         SELECT estado        AS "estado!: String",
@@ -654,7 +656,7 @@
             .await
             .map_err(|e| internal!("nombres de jugadores")(e))?;
 
-        /* ───────────────────────── 2. Formaciones actuales ───────────────────── */
+        /* ───────────── 2. Formaciones actuales ───────────── */
         let formaciones = sqlx::query_as!(
         FormacionData,
         r#"
@@ -668,7 +670,7 @@
             .await
             .map_err(|e| internal!("formaciones")(e))?;
 
-        /* ───────────── 2-bis. Último número de turno real ────────────────────── */
+        /* ───── 2-bis. Último número de turno real ───── */
         let ultimo_turno_i64: i64 = sqlx::query_scalar!(
         r#"
         SELECT COALESCE(MAX(numero_turno), 0)
@@ -683,20 +685,21 @@
 
         let ultimo_turno: i32 = ultimo_turno_i64 as i32;
 
-        // ─────────────────────────────────────────────────────────────
-        // 3-A) RAMA «waiting»  → todavía NO hay 2 formaciones
-        // ─────────────────────────────────────────────────────────────
+        // ─────────────────────────────────────────────────────────
+        // 3-A) «waiting» → todavía NO hay 2 formaciones
+        // ─────────────────────────────────────────────────────────
         if formaciones.len() < 2 {
             let snapshot = Snapshot {
-                estado: partida_data.estado.clone(),          // “waiting”
+                estado: partida_data.estado.clone(),      // "waiting"
                 marcador: (
                     partida_data.gol_j1.unwrap_or(0),
                     partida_data.gol_j2.unwrap_or(0),
                 ),
                 formaciones,
-                turnos: vec![],                               // sin jugadas aún
+                turnos: vec![],                           // sin jugadas aún
                 proximo_turno: 0,
-                ultimo_turno,
+                /*  ⬇️  SUMAMOS +1 PARA MANTENER MONOTONICIDAD  */
+                ultimo_turno:  ultimo_turno + 1,
                 nombre_jugador_1: nombres.nombre_jugador_1,
                 nombre_jugador_2: nombres.nombre_jugador_2,
             };
@@ -707,9 +710,9 @@
             return Ok(snapshot);
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // 3-B) RAMA «playing»  → ya existen las 2 formaciones
-        // ─────────────────────────────────────────────────────────────
+        // ─────────────────────────────────────────────────────────
+        // 3-B) «playing» → ya existen las 2 formaciones
+        // ─────────────────────────────────────────────────────────
         let mut turnos = sqlx::query_as!(
         TurnoData,
         r#"
@@ -727,18 +730,18 @@
             .await
             .map_err(|e| internal!("turnos")(e))?;
 
-        // Enriquecer cada jugada con owner explícito
+        // Enriquecer jugadas con owner explícito
         for t in &mut turnos {
             if let Some(arr) = t.jugada.get("piezas").and_then(|v| v.as_array()) {
                 let enriched: Vec<_> = arr
                     .iter()
                     .map(|p| {
                         let id_val = p.get("id").cloned().unwrap_or(json!(null));
-                        let owner = p
-                            .get("id_usuario_real")
+                        let owner  = p.get("id_usuario_real")
                             .cloned()
                             .unwrap_or_else(|| {
-                                if id_val == json!(-1) { json!(0) } else { json!(t.id_usuario) }
+                                if id_val == json!(-1) { json!(0) }
+                                else { json!(t.id_usuario) }
                             });
 
                         json!({
@@ -749,19 +752,17 @@
                     })
                     })
                     .collect();
-
                 t.jugada = json!({ "piezas": enriched });
             } else {
                 tracing::warn!(
                 "⚠️ Turno #{} sin piezas válidas (jugada original = {:?})",
-                t.numero_turno,
-                t.jugada
+                t.numero_turno, t.jugada
             );
             }
         }
 
         let snapshot = Snapshot {
-            estado: partida_data.estado.clone(),              // “playing”
+            estado: partida_data.estado.clone(),          // "playing"
             marcador: (
                 partida_data.gol_j1.unwrap_or(0),
                 partida_data.gol_j2.unwrap_or(0),
@@ -769,7 +770,7 @@
             formaciones,
             turnos,
             proximo_turno: partida_data.turno_actual.unwrap_or(0),
-            ultimo_turno,
+            ultimo_turno,                                  // sin +1; ya va adelantado
             nombre_jugador_1: nombres.nombre_jugador_1,
             nombre_jugador_2: nombres.nombre_jugador_2,
         };
@@ -781,6 +782,7 @@
         tracing::info!("✅ Snapshot de partida {id_partida} generado");
         Ok(snapshot)
     }
+
 
 
 
