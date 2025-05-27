@@ -269,15 +269,15 @@ export function receive_ws_message(msg) {
 }
 
 function __wbg_adapter_34(arg0, arg1, arg2) {
-    wasm.closure2503_externref_shim(arg0, arg1, arg2);
+    wasm.closure2507_externref_shim(arg0, arg1, arg2);
 }
 
 function __wbg_adapter_37(arg0, arg1, arg2) {
-    wasm.closure6733_externref_shim(arg0, arg1, arg2);
+    wasm.closure6737_externref_shim(arg0, arg1, arg2);
 }
 
 function __wbg_adapter_52(arg0, arg1, arg2) {
-    wasm.closure6996_externref_shim(arg0, arg1, arg2);
+    wasm.closure7000_externref_shim(arg0, arg1, arg2);
 }
 
 function __wbg_adapter_55(arg0, arg1) {
@@ -289,7 +289,7 @@ function __wbg_adapter_58(arg0, arg1) {
 }
 
 function __wbg_adapter_61(arg0, arg1, arg2) {
-    wasm.closure47306_externref_shim(arg0, arg1, arg2);
+    wasm.closure47310_externref_shim(arg0, arg1, arg2);
 }
 
 const __wbindgen_enum_BinaryType = ["blob", "arraybuffer"];
@@ -1878,52 +1878,52 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper10062 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6997, __wbg_adapter_52);
+    imports.wbg.__wbindgen_closure_wrapper10080 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 7001, __wbg_adapter_52);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper32262 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 25296, __wbg_adapter_55);
+    imports.wbg.__wbindgen_closure_wrapper32280 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 25300, __wbg_adapter_55);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper4064 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 2504, __wbg_adapter_34);
+    imports.wbg.__wbindgen_closure_wrapper4082 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 2508, __wbg_adapter_34);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper61864 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 47055, __wbg_adapter_58);
+    imports.wbg.__wbindgen_closure_wrapper61882 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 47059, __wbg_adapter_58);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper62438 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 47307, __wbg_adapter_61);
+    imports.wbg.__wbindgen_closure_wrapper62456 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 47311, __wbg_adapter_61);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper9573 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6734, __wbg_adapter_37);
+    imports.wbg.__wbindgen_closure_wrapper9591 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 6738, __wbg_adapter_37);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper9575 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6734, __wbg_adapter_37);
+    imports.wbg.__wbindgen_closure_wrapper9593 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 6738, __wbg_adapter_37);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper9577 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6734, __wbg_adapter_37);
+    imports.wbg.__wbindgen_closure_wrapper9595 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 6738, __wbg_adapter_37);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper9579 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6734, __wbg_adapter_37);
+    imports.wbg.__wbindgen_closure_wrapper9597 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 6738, __wbg_adapter_37);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper9581 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6734, __wbg_adapter_37);
+    imports.wbg.__wbindgen_closure_wrapper9599 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 6738, __wbg_adapter_37);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper9583 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6734, __wbg_adapter_37);
+    imports.wbg.__wbindgen_closure_wrapper9601 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 6738, __wbg_adapter_37);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper9585 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 6734, __wbg_adapter_37);
+    imports.wbg.__wbindgen_closure_wrapper9603 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 6738, __wbg_adapter_37);
         return ret;
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {

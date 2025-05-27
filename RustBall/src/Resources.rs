@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use crate::events::RandomEvent;
-use crate::snapshot::SnapshotFromServer;
-use crate::snapshot::BoardSnapshot;
+use crate::snapshot::{BoardSnapshot, SnapshotFromServer};
 
 /* ─────────── Turno / Marcador ─────────── */
 
@@ -86,6 +85,7 @@ pub struct EventControl {
 }
 
 /* ─────────── Info de backend ─────────── */
+
 #[derive(Resource, Clone, Debug)]
 pub struct BackendInfo {
     pub partida_id: i32,
@@ -96,7 +96,6 @@ pub struct BackendInfo {
 }
 
 impl BackendInfo {
-    // Constructor normal (sin snapshot)
     pub fn new(partida_id: i32, my_uid: i32, id_left: i32, id_right: i32) -> Self {
         Self {
             partida_id,
@@ -107,7 +106,6 @@ impl BackendInfo {
         }
     }
 
-    // Constructor con snapshot (opcional)
     pub fn new_with_snapshot(
         partida_id: i32,
         my_uid: i32,
@@ -124,14 +122,10 @@ impl BackendInfo {
         }
     }
 
-    pub fn i_am_left(&self) -> bool {
-        self.my_uid == self.id_left
-    }
-
-    pub fn i_am_right(&self) -> bool {
-        self.my_uid == self.id_right
-    }
+    pub fn i_am_left(&self) -> bool  { self.my_uid == self.id_left  }
+    pub fn i_am_right(&self) -> bool { self.my_uid == self.id_right }
 }
+
 /* ─────────── Snapshot más reciente (compartido) ─────────── */
 
 #[derive(Resource, Default)]
@@ -145,13 +139,23 @@ pub struct PowerBarBackground;
 #[derive(Resource, Default)]
 pub struct WsInbox(pub Vec<String>);
 
-#[derive(Resource, Default)]
+#[derive(Resource, Debug)]
 pub struct UltimoTurnoAplicado(pub i32);
+
+// necesitamos -1 para que el snapshot #0 se aplique siempre
+impl Default for UltimoTurnoAplicado {
+    fn default() -> Self {
+        Self(-1)
+    }
+}
 
 #[derive(Resource)]
 pub struct CurrentPlayerId(pub i32);
+
 impl Default for CurrentPlayerId {
-    fn default() -> Self { Self(0) }
+    fn default() -> Self {
+        Self(0)
+    }
 }
 
 #[derive(Resource, Debug, Clone)]

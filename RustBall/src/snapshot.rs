@@ -118,6 +118,9 @@ pub fn set_game_state(json_str: &str, uid: i32) {
 // -----------------------------------------------------------------------------
 // Sistema Bevy que aplica el snapshot cuando está en cola
 // -----------------------------------------------------------------------------
+/* -------------------------------------------------------------------------- */
+/*  Sistema Bevy que aplica el snapshot cuando está en cola                   */
+/* -------------------------------------------------------------------------- */
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot_apply_system(
     mut commands: Commands,
@@ -133,28 +136,31 @@ pub fn snapshot_apply_system(
     backend_info: Res<BackendInfo>,
     player_names: Option<Res<PlayerNames>>,
 ) {
+    // 0. ¿hay algo en cola?
     let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else {
-        return; // nada que aplicar
+        return;
     };
 
-    info!("🔄 Aplicando snapshot – turno {} (último #{})", snap.proximo_turno, snap.ultimo_turno);
+    info!(
+        "🔄 Aplicando snapshot – turno {} (contador #{})",
+        snap.proximo_turno, snap.ultimo_turno
+    );
 
-    // 1. Nombres de jugadores
+    /* 1 ─── Actualizar nombres de jugadores ─────────────────────────────── */
     commands.insert_resource(PlayerNames {
-        left_name: snap.nombre_jugador_1.clone(),
+        left_name:  snap.nombre_jugador_1.clone(),
         right_name: snap.nombre_jugador_2.clone(),
     });
 
-    // 2. Evitar volver a aplicarlo si ya lo hicimos (ahora por número real)
+    /* 2 ─── Ignorar si ya se aplicó ese mismo contador ─────────────────── */
     if snap.ultimo_turno == ultimo_turno.0 {
-        warn!("⏩ Snapshot ignorado: mismo número de turno que el último aplicado ({})", snap.ultimo_turno);
+        warn!("⏩ Snapshot duplicado (#{}) – descartado", snap.ultimo_turno);
         return;
     }
-    ultimo_turno.0 = snap.ultimo_turno;
 
-    // 3. Aplicar jugadas o formaciones
+    /* 3 ─── Aplicar jugada o, si no hay, formaciones iniciales ──────────── */
     if let Some(last_jugada) = snap.turnos.last() {
-        // snapshot con jugada
+        // --- snapshot con jugada -----------------
         if let Ok(board_raw) = serde_json::from_value::<BoardSnapshot>(last_jugada.jugada.clone()) {
             let mapped = BoardSnapshot {
                 piezas: board_raw
@@ -179,30 +185,33 @@ pub fn snapshot_apply_system(
                 player_names.map(|r| (*r).clone()),
                 &asset_server,
             );
+
             commands.insert_resource(NextTurn(last_jugada.numero_turno + 1));
         } else {
-            warn!("📛 Snapshot recibido con jugada inválida o corrupta.");
+            warn!("📛 Snapshot con jugada corrupta: {:?}", last_jugada.jugada);
         }
     } else if snap.formaciones.len() >= 2 {
-        // kickoff – sólo formaciones
+        // --- snapshot de kickoff (sólo formaciones) -----
         for f in &snap.formaciones {
             spawn_formation_for(f, &mut commands, &asset_server, &backend_info);
         }
         commands.insert_resource(NextTurn(1));
 
+        // spawnear pelota si aún no existe
         if q_ball.get_single().is_err() {
             spawn_ball(&mut commands, &asset_server);
         }
     } else {
-        warn!("📛 Snapshot sin jugadas ni formaciones válidas.");
+        warn!("📛 Snapshot sin jugadas ni formaciones válidas");
     }
 
-    // 4. Actualizar estado del juego
+    /* 4 ─── Refrescar estado de juego / marcador ────────────────────────── */
     *scores = Scores {
-        left: snap.marcador.0,
+        left:  snap.marcador.0,
         right: snap.marcador.1,
     };
-    ts.in_motion = false;
+
+    ts.in_motion       = false;
     ts.selected_entity = None;
     ts.skip_turn_switch = false;
     ts.current_turn_id = snap.proximo_turno;
@@ -210,18 +219,16 @@ pub fn snapshot_apply_system(
 
     let is_my_turn = snap.proximo_turno == my_uid;
     commands.insert_resource(MyTurn(is_my_turn));
-    info!("🕑 MyTurn = {}", is_my_turn);
+    info!("🕑 ¿Es mi turno?: {}", is_my_turn);
 
     if *state != AppState::InGame && snap.proximo_turno != 0 {
         next_state.set(AppState::InGame);
-        info!("🎮 Estado cambiado a InGame.");
+        info!("🎮 Cambio de estado → InGame");
     }
 
-    // 5. Guardar número de turno aplicado
-    {
-        let mut last = LAST_TURNO_NUM.lock().unwrap();
-        *last = snap.ultimo_turno;
-    }
+    /* 5 ─── Guardar contador aplicado (una sola vez) ───────────────────── */
+    ultimo_turno.0 = snap.ultimo_turno;
+    info!("✅ Último turno aplicado ahora es #{}", ultimo_turno.0);
 }
 
 /* ======================================================================= */
