@@ -24,6 +24,5 @@ pub fn setup(
     spawn_camera_and_background(&mut commands, &asset_server);
     spawn_ui(&mut commands, &asset_server);
     spawn_walls(&mut commands);
-    spawn_ball(&mut commands, &asset_server);
     spawn_goals(&mut commands, &asset_server);
 }

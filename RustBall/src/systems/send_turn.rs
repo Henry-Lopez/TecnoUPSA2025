@@ -35,7 +35,7 @@ pub fn send_turn_to_backend(
 ) {
     let Some(next_turn) = next_turn else { return };
 
-    for _ in ev_end.iter() {
+    for _ in ev_end.read() {
         info!("📤 TurnFinished — UID {}", backend.my_uid);
 
         // 1-A) Obtener fichas con posiciones y dueño real

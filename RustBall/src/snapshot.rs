@@ -113,7 +113,7 @@ pub fn snapshot_apply_system(
     mut ts               : ResMut<TurnState>,
     mut ultimo_turno     : ResMut<UltimoTurnoAplicado>,
     mut current_player_id: ResMut<CurrentPlayerId>,
-    q_ball              : Query<Entity, With<Ball>>,
+    q_ball               : Query<(Entity, &Transform), With<Ball>>,
     q_disks              : Query<Entity, With<PlayerDisk>>,
     state                : Res<State<AppState>>,
     mut next_state       : ResMut<NextState<AppState>>,
