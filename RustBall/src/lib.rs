@@ -27,6 +27,8 @@ use crate::events::LocalTurnFinishedEvent;
 use crate::resources::WsInbox;
 
 // 🔐 Caja estática para pasar mensajes JS → Bevy (sólo WASM)
+
+
 #[cfg(target_arch = "wasm32")]
 static WS_INBOX: OnceCell<Mutex<WsInbox>> = OnceCell::new();
 

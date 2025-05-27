@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use crate::resources::BackendInfo;
 use crate::{
-    components::{PlayerDisk, Ball},   // ← corchetes y dos nombres
+    components::{PlayerDisk, Ball},
     formation::spawn_formation_for,
     resources::{
         AppState, CurrentPlayerId, PlayerNames, Scores, TurnState,
@@ -11,6 +11,9 @@ use crate::{
     },
     systems::apply_board_snapshot,
 };
+
+// Importa la función para spawnear la pelota en el kickoff
+use crate::setup::spawn_ball;
 
 /* ───────────── etiqueta SystemSet ───────────── */
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -86,7 +89,6 @@ pub fn set_game_state(json_str: &str, uid: i32) {
             }
 
             let last = LAST_TURNO.lock().unwrap();
-
             info!(
                 "📥 Recibido snapshot turno {} (último aplicado {})",
                 snap.proximo_turno, *last
@@ -108,18 +110,18 @@ pub fn set_game_state(json_str: &str, uid: i32) {
 
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot_apply_system(
-    mut commands         : Commands,
-    mut scores           : ResMut<Scores>,
-    mut ts               : ResMut<TurnState>,
-    mut ultimo_turno     : ResMut<UltimoTurnoAplicado>,
+    mut commands: Commands,
+    mut scores: ResMut<Scores>,
+    mut ts: ResMut<TurnState>,
+    mut ultimo_turno: ResMut<UltimoTurnoAplicado>,
     mut current_player_id: ResMut<CurrentPlayerId>,
-    q_ball               : Query<(Entity, &Transform), With<Ball>>,
-    q_disks              : Query<Entity, With<PlayerDisk>>,
-    state                : Res<State<AppState>>,
-    mut next_state       : ResMut<NextState<AppState>>,
-    asset_server         : Res<AssetServer>,
-    backend_info         : Res<BackendInfo>,
-    player_names         : Option<Res<PlayerNames>>,
+    q_ball: Query<(Entity, &Transform), With<Ball>>,
+    q_disks: Query<Entity, With<PlayerDisk>>,
+    state: Res<State<AppState>>,
+    mut next_state: ResMut<NextState<AppState>>,
+    asset_server: Res<AssetServer>,
+    backend_info: Res<BackendInfo>,
+    player_names: Option<Res<PlayerNames>>,
 ) {
     let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else {
         warn!("📭 No hay snapshot en cola para aplicar.");
@@ -128,19 +130,21 @@ pub fn snapshot_apply_system(
 
     info!("🔄 Aplicando snapshot – turno {}", snap.proximo_turno);
 
+    // Actualizar nombres de jugadores
     commands.insert_resource(PlayerNames {
-        left_name : snap.nombre_jugador_1.clone(),
+        left_name: snap.nombre_jugador_1.clone(),
         right_name: snap.nombre_jugador_2.clone(),
     });
 
-     if snap.proximo_turno == ultimo_turno.0 {
+    // Ignorar snapshot duplicado
+    if snap.proximo_turno == ultimo_turno.0 {
         warn!("⏩ Snapshot ignorado: mismo turno que el último aplicado ({})", snap.proximo_turno);
-         return;
-     }
-
+        return;
+    }
     ultimo_turno.0 = snap.proximo_turno;
 
     if let Some(last) = snap.turnos.last() {
+        // Caso con jugada: aplicar snapshot de posicionado
         if let Ok(board_raw) = serde_json::from_value::<BoardSnapshot>(last.jugada.clone()) {
             let mapped = BoardSnapshot {
                 piezas: board_raw.piezas.into_iter().map(|p| PiezaPos {
@@ -155,33 +159,39 @@ pub fn snapshot_apply_system(
                 mapped,
                 &mut commands,
                 backend_info.clone(),
-                q_disks,          // fichas
-                q_ball,           // ← nuevo
+                q_disks,
+                q_ball,
                 snap.proximo_turno,
                 player_names.map(|r| (*r).clone()),
                 &asset_server,
             );
-
-
             commands.insert_resource(NextTurn(last.numero_turno + 1));
         } else {
             warn!("📛 Snapshot recibido con jugada inválida o corrupta.");
         }
+
     } else if snap.formaciones.len() >= 2 {
+        // Caso kickoff: sólo formaciones
         for f in &snap.formaciones {
             spawn_formation_for(f, &mut commands, &asset_server, &backend_info);
         }
         commands.insert_resource(NextTurn(1));
+
+        // Generar pelota en el kickoff si no existe aún
+        if q_ball.get_single().is_err() {
+            spawn_ball(&mut commands, &asset_server);
+        }
+
     } else {
         warn!("📛 Snapshot recibido sin jugadas ni formaciones válidas.");
     }
 
+    // Actualizar marcador
     *scores = Scores { left: snap.marcador.0, right: snap.marcador.1 };
-
-    ts.in_motion        = false;
-    ts.selected_entity  = None;
+    ts.in_motion = false;
+    ts.selected_entity = None;
     ts.skip_turn_switch = false;
-    ts.current_turn_id  = snap.proximo_turno;
+    ts.current_turn_id = snap.proximo_turno;
     current_player_id.0 = snap.proximo_turno;
 
     let is_my_turn = snap.proximo_turno == my_uid;
@@ -193,7 +203,7 @@ pub fn snapshot_apply_system(
         info!("🎮 Estado cambiado a InGame.");
     }
 
-    // 🔄 ACTUALIZAR LAST_TURNO DESPUÉS DE APLICAR CORRECTAMENTE EL SNAPSHOT
+    // Actualizar LAST_TURNO
     let mut last = LAST_TURNO.lock().unwrap();
     *last = snap.proximo_turno;
     info!("✅ LAST_TURNO actualizado a {}", *last);
@@ -201,13 +211,13 @@ pub fn snapshot_apply_system(
 
 /* ======================================================================= */
 #[cfg(target_arch = "wasm32")]
-pub fn fetch_snapshot_on_ws_message(mut inbox : ResMut<WsInbox>) {
+pub fn fetch_snapshot_on_ws_message(mut inbox: ResMut<WsInbox>) {
     inbox.0.clear();
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn poll_snapshot_when_forming(
-    time  : Res<Time>,
+    time: Res<Time>,
     mut timer: ResMut<crate::resources::SnapshotPollTimer>,
     backend: Option<Res<BackendInfo>>,
 ) {
@@ -226,7 +236,7 @@ pub fn poll_snapshot_when_forming(
             if let Ok(resp) = Request::get(&format!("/api/snapshot/{pid}")).send().await {
                 if let Ok(snap) = resp.json::<SnapshotFromServer>().await {
                     if snap.proximo_turno != 0 {
-                        crate::snapshot::set_game_state(&serde_json::to_string(&snap).unwrap(), uid);
+                        set_game_state(&serde_json::to_string(&snap).unwrap(), uid);
                     }
                 }
             }
