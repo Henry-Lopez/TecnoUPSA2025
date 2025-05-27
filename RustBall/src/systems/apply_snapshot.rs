@@ -44,11 +44,11 @@ pub fn apply_board_snapshot(
     let tex_left  = asset_server.load("circulobarca.png");
     let tex_right = asset_server.load("circuloparis.png");
     let tex_ball  = asset_server.load("pelota.png");
-    let damping = Damping { linear_damping: 2.0, angular_damping: 2.0 };
+    let damping   = Damping { linear_damping: 2.0, angular_damping: 2.0 };
 
     // 3. Procesar cada pieza del snapshot:
     let my_uid = backend_info.my_uid;
-    let mut control_set = false;
+    let mut control_set  = false;
     let mut ball_spawned = false;
 
     for PiezaPos { id, x, y, id_usuario_real } in board.piezas {
@@ -62,7 +62,10 @@ pub fn apply_board_snapshot(
                     SpriteBundle {
                         texture: tex_ball.clone(),
                         transform: Transform::from_xyz(x, y, 12.0),
-                        sprite: Sprite { custom_size: Some(Vec2::splat(48.0)), ..default() },
+                        sprite: Sprite {
+                            custom_size: Some(Vec2::splat(48.0)),
+                            ..default()
+                        },
                         ..default()
                     },
                     RigidBody::Dynamic,
@@ -95,7 +98,10 @@ pub fn apply_board_snapshot(
             SpriteBundle {
                 texture,
                 transform: Transform::from_xyz(x, y, 10.0),
-                sprite: Sprite { custom_size: Some(Vec2::splat(70.0)), ..default() },
+                sprite: Sprite {
+                    custom_size: Some(Vec2::splat(70.0)),
+                    ..default()
+                },
                 ..default()
             },
             RigidBody::Dynamic,
@@ -109,7 +115,10 @@ pub fn apply_board_snapshot(
             damping.clone(),
             LockedAxes::ROTATION_LOCKED,
             Sleeping::disabled(),
-            PlayerDisk { player_id: if is_left { 1 } else { 2 }, id_usuario_real },
+            PlayerDisk {
+                player_id: if is_left { 1 } else { 2 },
+                id_usuario_real,
+            },
             OwnedBy(id_usuario_real),
             Name::new(format!("disk_user_{}", id_usuario_real)),
         ));
