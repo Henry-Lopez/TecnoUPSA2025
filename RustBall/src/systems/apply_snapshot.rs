@@ -35,25 +35,25 @@ pub fn apply_board_snapshot(
     names: Option<PlayerNames>,
     asset_server: &Res<AssetServer>,
 ) {
-    // 1. Despawner fichas anteriores:
+    /* 1 ─── Despawner fichas anteriores ──────────────────────────────── */
     for e in &existing_disks {
         commands.entity(e).despawn_recursive();
     }
 
-    // 2. Cargar texturas y propiedades comunes:
+    /* 2 ─── Cargar texturas y propiedades comunes ────────────────────── */
     let tex_left  = asset_server.load("circulobarca.png");
     let tex_right = asset_server.load("circuloparis.png");
     let tex_ball  = asset_server.load("pelota.png");
     let damping   = Damping { linear_damping: 2.0, angular_damping: 2.0 };
 
-    // 3. Procesar cada pieza del snapshot:
+    /* 3 ─── Procesar cada pieza del snapshot ─────────────────────────── */
     let my_uid = backend_info.my_uid;
     let mut control_set  = false;
     let mut ball_spawned = false;
 
     for PiezaPos { id, x, y, id_usuario_real } in board.piezas {
         if id == -1 {
-            // Pelota: si ya existe, actualizar posición; si no, spawnear
+            // Pelota
             if let Ok((entity, _)) = existing_ball.get_single() {
                 commands.entity(entity)
                     .insert(Transform::from_xyz(x, y, 12.0));
@@ -84,7 +84,6 @@ pub fn apply_board_snapshot(
             continue;
         }
 
-        // Ficha de jugador:
         let is_left = id_usuario_real == backend_info.id_left;
         let texture = if is_left { tex_left.clone() } else { tex_right.clone() };
         let name_log = match &names {
@@ -123,14 +122,14 @@ pub fn apply_board_snapshot(
             Name::new(format!("disk_user_{}", id_usuario_real)),
         ));
 
-        // Asignar control a la primera ficha del jugador en turno:
+        // Control sólo a la primera ficha del jugador en turno
         if !control_set && id_usuario_real == my_uid && id_usuario_real == current_turn_id {
             ecmd.insert(TurnControlled);
             control_set = true;
         }
     }
 
-    // 4. Si el snapshot no incluye pelota, despawnear si existe:
+    /* 4 ─── Si no hay pelota en el snapshot, despawnea la existente ──── */
     if !ball_spawned {
         for (entity, _) in existing_ball.iter() {
             commands.entity(entity).despawn_recursive();

@@ -1,35 +1,34 @@
 // src/snapshot.rs – versión con deduplicación por `ultimo_turno`
-
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::resources::BackendInfo;
 use crate::{
     components::{Ball, PlayerDisk},
     formation::spawn_formation_for,
     resources::{
         AppState, CurrentPlayerId, PlayerNames, Scores, TurnState, UltimoTurnoAplicado, WsInbox,
+        BackendInfo,
     },
     systems::apply_board_snapshot,
 };
 
-// Importa la función para spawnear la pelota en el kickoff
+// Importa la función que spawnea la pelota en el kickoff
 use crate::setup::spawn_ball;
 
-/* ───────────── etiqueta SystemSet ───────────── */
+/* ───── etiqueta SystemSet ───── */
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub struct ApplySnapshotSet;
 
-/* ───────────── Recurso: próximo nº de turno ───────────── */
+/* ───── Recurso: próximo nº de turno ───── */
 #[derive(Resource, Default, Debug)]
 pub struct NextTurn(pub i32);
 
-/* ───────────── Recurso: ¿es mi turno? ───────────── */
+/* ───── Recurso: ¿es mi turno? ───── */
 #[derive(Resource, Default, Debug)]
 pub struct MyTurn(pub bool);
 
-/* ───────────── Modelos JSON que llegan del backend ───────────── */
+/* ───── Modelos JSON que llegan del backend ───── */
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PiezaPos {
     pub id: i32,
@@ -70,7 +69,7 @@ pub struct SnapshotFromServer {
     pub nombre_jugador_2: String,
 }
 
-/* ───────────── Buffer local (snapshot en cola) ───────────── */
+/* ───── Buffer local (snapshot en cola) ───── */
 thread_local! {
     static APP_STATE: std::cell::RefCell<Option<(SnapshotFromServer, i32)>> =
         const { std::cell::RefCell::new(None) };
@@ -79,7 +78,7 @@ thread_local! {
 // Último número de turno aplicado (no UID)
 static LAST_TURNO_NUM: std::sync::Mutex<i32> = std::sync::Mutex::new(-1);
 
-/* ───────────── Callback JS → Rust ───────────── */
+/* ───── Callback JS → Rust ───── */
 #[wasm_bindgen]
 pub fn set_game_state(json_str: &str, uid: i32) {
     web_sys::console::log_1(&"🧠 set_game_state() fue llamado".into());
@@ -88,10 +87,8 @@ pub fn set_game_state(json_str: &str, uid: i32) {
         Ok(snap) => {
             web_sys::console::log_1(&"✅ SnapshotFromServer parseado con éxito".into());
 
-            if snap.estado != "playing" || snap.proximo_turno == 0 {
-                warn!(
-                    "⏳ Partida aún no está en estado 'playing' o turno inválido. Ignorando snapshot."
-                );
+            if snap.estado != "playing" {
+                warn!("⏳ Partida no está en estado 'playing'. Ignorando snapshot.");
                 return;
             }
 
@@ -115,9 +112,6 @@ pub fn set_game_state(json_str: &str, uid: i32) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Sistema Bevy que aplica el snapshot cuando está en cola
-// -----------------------------------------------------------------------------
 /* -------------------------------------------------------------------------- */
 /*  Sistema Bevy que aplica el snapshot cuando está en cola                   */
 /* -------------------------------------------------------------------------- */
@@ -136,31 +130,64 @@ pub fn snapshot_apply_system(
     backend_info: Res<BackendInfo>,
     player_names: Option<Res<PlayerNames>>,
 ) {
-    // 0. ¿hay algo en cola?
-    let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else {
-        return;
-    };
+    /* 0 ─── ¿hay algo en cola? ─────────────────────────────────────────── */
+    let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else { return };
 
     info!(
         "🔄 Aplicando snapshot – turno {} (contador #{})",
         snap.proximo_turno, snap.ultimo_turno
     );
 
-    /* 1 ─── Actualizar nombres de jugadores ─────────────────────────────── */
+    /* 0.b ─── Snapshot especial: gol → elegir formaciones de nuevo ─────── */
+    if snap.proximo_turno == 0 && snap.formaciones.is_empty() {
+        info!("⚽ Gol marcado — volvemos a FormationSelection");
+
+        // Limpia tablero (opcional: comenta si quieres dejar las fichas)
+        for e in &q_disks {
+            commands.entity(e).despawn_recursive();
+        }
+        if let Ok((ball_ent, _)) = q_ball.get_single() {
+            commands.entity(ball_ent).despawn_recursive();
+        }
+
+        // Actualiza marcador
+        *scores = Scores {
+            left:  snap.marcador.0,
+            right: snap.marcador.1,
+        };
+
+        // Reinicia estado de turno / input
+        ts.in_motion        = false;
+        ts.selected_entity  = None;
+        ts.skip_turn_switch = false;
+        ts.current_turn_id  = 0;
+        commands.insert_resource(MyTurn(false));
+        commands.insert_resource(NextTurn(1));
+
+        // Cambia a pantalla de formaciones
+        next_state.set(AppState::FormationSelection);
+
+        // Guarda contador para no re-aplicar
+        ultimo_turno.0 = snap.ultimo_turno;
+        info!("✅ Último turno aplicado ahora es #{}", ultimo_turno.0);
+        return; // ¡nada más que hacer!
+    }
+
+    /* 1 ─── Nombres de jugadores ───────────────────────────────────────── */
     commands.insert_resource(PlayerNames {
         left_name:  snap.nombre_jugador_1.clone(),
         right_name: snap.nombre_jugador_2.clone(),
     });
 
-    /* 2 ─── Ignorar si ya se aplicó ese mismo contador ─────────────────── */
+    /* 2 ─── Ignorar si ya se aplicó este contador ─────────────────────── */
     if snap.ultimo_turno == ultimo_turno.0 {
         warn!("⏩ Snapshot duplicado (#{}) – descartado", snap.ultimo_turno);
         return;
     }
 
-    /* 3 ─── Aplicar jugada o, si no hay, formaciones iniciales ──────────── */
+    /* 3 ─── Jugada o kickoff ───────────────────────────────────────────── */
     if let Some(last_jugada) = snap.turnos.last() {
-        // --- snapshot con jugada -----------------
+        // --- Snap con jugada --------------------------------------------
         if let Ok(board_raw) = serde_json::from_value::<BoardSnapshot>(last_jugada.jugada.clone()) {
             let mapped = BoardSnapshot {
                 piezas: board_raw
@@ -188,16 +215,15 @@ pub fn snapshot_apply_system(
 
             commands.insert_resource(NextTurn(last_jugada.numero_turno + 1));
         } else {
-            warn!("📛 Snapshot con jugada corrupta: {:?}", last_jugada.jugada);
+            warn!("📛 Snapshot con jugada corrupta");
         }
     } else if snap.formaciones.len() >= 2 {
-        // --- snapshot de kickoff (sólo formaciones) -----
+        // --- Kickoff (solo formaciones) ----------------------------------
         for f in &snap.formaciones {
             spawn_formation_for(f, &mut commands, &asset_server, &backend_info);
         }
         commands.insert_resource(NextTurn(1));
 
-        // spawnear pelota si aún no existe
         if q_ball.get_single().is_err() {
             spawn_ball(&mut commands, &asset_server);
         }
@@ -205,16 +231,16 @@ pub fn snapshot_apply_system(
         warn!("📛 Snapshot sin jugadas ni formaciones válidas");
     }
 
-    /* 4 ─── Refrescar estado de juego / marcador ────────────────────────── */
+    /* 4 ─── Refrescar estado de juego / marcador ───────────────────────── */
     *scores = Scores {
         left:  snap.marcador.0,
         right: snap.marcador.1,
     };
 
-    ts.in_motion       = false;
-    ts.selected_entity = None;
+    ts.in_motion        = false;
+    ts.selected_entity  = None;
     ts.skip_turn_switch = false;
-    ts.current_turn_id = snap.proximo_turno;
+    ts.current_turn_id  = snap.proximo_turno;
     current_player_id.0 = snap.proximo_turno;
 
     let is_my_turn = snap.proximo_turno == my_uid;
@@ -226,11 +252,13 @@ pub fn snapshot_apply_system(
         info!("🎮 Cambio de estado → InGame");
     }
 
-    /* 5 ─── Guardar contador aplicado (una sola vez) ───────────────────── */
+    /* 5 ─── Guardar contador aplicado ─────────────────────────────────── */
     ultimo_turno.0 = snap.ultimo_turno;
     info!("✅ Último turno aplicado ahora es #{}", ultimo_turno.0);
 }
 
+/* ======================================================================= */
+/*  Sistemas auxiliares WASM                                               */
 /* ======================================================================= */
 #[cfg(target_arch = "wasm32")]
 pub fn fetch_snapshot_on_ws_message(mut inbox: ResMut<WsInbox>) {
