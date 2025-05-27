@@ -591,48 +591,62 @@
 
         /* ───── 1. Cabecera de la partida ───── */
         let partida_data = sqlx::query!(
-            r#"
-            SELECT estado  AS "estado!: String",
-                   turno_actual,
-                   gol_j1,
-                   gol_j2
-            FROM   Partida
-            WHERE  id_partida = ?
-            "#,
-            id_partida
-        )
+        r#"
+        SELECT estado  AS "estado!: String",
+               turno_actual,
+               gol_j1,
+               gol_j2
+        FROM   Partida
+        WHERE  id_partida = ?
+        "#,
+        id_partida
+    )
             .fetch_one(&pool)
             .await
             .map_err(|e| internal!("estado de la partida")(e))?;
 
         let nombres = sqlx::query!(
-            r#"
-            SELECT u1.nombre_usuario AS nombre_jugador_1,
-                   u2.nombre_usuario AS nombre_jugador_2
-            FROM   Partida
-            JOIN   Usuario u1 ON u1.id_usuario = Partida.id_jugador1
-            JOIN   Usuario u2 ON u2.id_usuario = Partida.id_jugador2
-            WHERE  Partida.id_partida = ?
-            "#,
-            id_partida
-        )
+        r#"
+        SELECT u1.nombre_usuario AS nombre_jugador_1,
+               u2.nombre_usuario AS nombre_jugador_2
+        FROM   Partida
+        JOIN   Usuario u1 ON u1.id_usuario = Partida.id_jugador1
+        JOIN   Usuario u2 ON u2.id_usuario = Partida.id_jugador2
+        WHERE  Partida.id_partida = ?
+        "#,
+        id_partida
+    )
             .fetch_one(&pool)
             .await
             .map_err(|e| internal!("nombres de jugadores")(e))?;
 
         /* ───── 2. Formaciones ───── */
         let formaciones = sqlx::query_as!(
-            FormacionData,
-            r#"
-            SELECT id_usuario, formacion, turno_inicio
-            FROM   FormacionElegida
-            WHERE  id_partida = ?
-            "#,
-            id_partida
-        )
+        FormacionData,
+        r#"
+        SELECT id_usuario, formacion, turno_inicio
+        FROM   FormacionElegida
+        WHERE  id_partida = ?
+        "#,
+        id_partida
+    )
             .fetch_all(&pool)
             .await
             .map_err(|e| internal!("formaciones")(e))?;
+
+        /* ── 2-bis. Último nº de turno real ── */
+        let ultimo_turno_i64: i64 = sqlx::query_scalar!(
+        r#"SELECT COALESCE(MAX(numero_turno), 0)
+           FROM   Turno
+           WHERE  id_partida = ?"#,
+        id_partida
+    )
+            .fetch_one(&pool)
+            .await
+            .map_err(internal!("último nº de turno"))?;   // 👈 usa tu macro
+
+        let ultimo_turno: i32 = ultimo_turno_i64 as i32;   // 👈 conversión explícita
+
 
         // Si no hay las 2 formaciones devolvemos snapshot mínimo
         if formaciones.len() < 2 {
@@ -642,10 +656,10 @@
                 formaciones,
                 turnos: vec![],
                 proximo_turno: 0,
+                ultimo_turno,                       // ← ya incluido
                 nombre_jugador_1: nombres.nombre_jugador_1,
                 nombre_jugador_2: nombres.nombre_jugador_2,
             };
-            // (opcional) guarda como “último snapshot”
             if let Ok(s) = serde_json::to_string(&snapshot) {
                 save_last_snapshot(id_partida, s);
             }
@@ -654,18 +668,18 @@
 
         /* ───── 3. Turnos y jugadas ───── */
         let mut turnos = sqlx::query_as!(
-            TurnoData,
-            r#"
-            SELECT numero_turno,
-                   id_usuario,
-                   jugada,
-                   fecha_turno AS "fecha_turno: chrono::NaiveDateTime"
-            FROM   Turno
-            WHERE  id_partida = ?
-            ORDER  BY numero_turno
-            "#,
-            id_partida
-        )
+        TurnoData,
+        r#"
+        SELECT numero_turno,
+               id_usuario,
+               jugada,
+               fecha_turno AS "fecha_turno: chrono::NaiveDateTime"
+        FROM   Turno
+        WHERE  id_partida = ?
+        ORDER  BY numero_turno
+        "#,
+        id_partida
+    )
             .fetch_all(&pool)
             .await
             .map_err(|e| internal!("turnos")(e))?;
@@ -676,37 +690,30 @@
                 let enriched: Vec<_> = arr
                     .iter()
                     .map(|p| {
-                        // id original
                         let id_val = p.get("id").cloned().unwrap_or(json!(null));
-
-                        // dueño real (si faltaba)
                         let owner = p
                             .get("id_usuario_real")
                             .cloned()
                             .unwrap_or_else(|| {
-                                if id_val == json!(-1) {               // pelota
-                                    json!(0)
-                                } else {
-                                    json!(t.id_usuario)                // ficha del jugador activo
-                                }
+                                if id_val == json!(-1) { json!(0) } else { json!(t.id_usuario) }
                             });
 
                         json!({
-                            "id"             : id_val,
-                            "id_usuario_real": owner,
-                            "x"              : p.get("x").cloned().unwrap_or(json!(null)),
-                            "y"              : p.get("y").cloned().unwrap_or(json!(null)),
-                        })
+                        "id"             : id_val,
+                        "id_usuario_real": owner,
+                        "x"              : p.get("x").cloned().unwrap_or(json!(null)),
+                        "y"              : p.get("y").cloned().unwrap_or(json!(null)),
+                    })
                     })
                     .collect();
 
                 t.jugada = json!({ "piezas": enriched });
             } else {
                 tracing::warn!(
-                    "⚠️ Turno #{} sin piezas válidas (jugada original = {:?})",
-                    t.numero_turno,
-                    t.jugada
-                );
+                "⚠️ Turno #{} sin piezas válidas (jugada original = {:?})",
+                t.numero_turno,
+                t.jugada
+            );
             }
         }
 
@@ -720,6 +727,7 @@
             formaciones,
             turnos,
             proximo_turno: partida_data.turno_actual.unwrap_or(0),
+            ultimo_turno,                           // ← NUEVO campo
             nombre_jugador_1: nombres.nombre_jugador_1,
             nombre_jugador_2: nombres.nombre_jugador_2,
         };
@@ -731,6 +739,7 @@
         tracing::info!("✅ Snapshot de partida {id_partida} generado");
         Ok(snapshot)
     }
+
 
 
 

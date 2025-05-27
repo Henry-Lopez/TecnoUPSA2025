@@ -1,13 +1,15 @@
+// src/snapshot.rs – versión con deduplicación por `ultimo_turno`
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
 use crate::resources::BackendInfo;
 use crate::{
-    components::{PlayerDisk, Ball},
+    components::{Ball, PlayerDisk},
     formation::spawn_formation_for,
     resources::{
-        AppState, CurrentPlayerId, PlayerNames, Scores, TurnState,
-        UltimoTurnoAplicado, WsInbox,
+        AppState, CurrentPlayerId, PlayerNames, Scores, TurnState, UltimoTurnoAplicado, WsInbox,
     },
     systems::apply_board_snapshot,
 };
@@ -63,6 +65,7 @@ pub struct SnapshotFromServer {
     pub formaciones: Vec<FormacionData>,
     pub turnos: Vec<TurnoData>,
     pub proximo_turno: i32,
+    pub ultimo_turno: i32, // ← NUEVO: contador real de turnos
     pub nombre_jugador_1: String,
     pub nombre_jugador_2: String,
 }
@@ -72,7 +75,9 @@ thread_local! {
     static APP_STATE: std::cell::RefCell<Option<(SnapshotFromServer, i32)>> =
         const { std::cell::RefCell::new(None) };
 }
-static LAST_TURNO: std::sync::Mutex<i32> = std::sync::Mutex::new(0);
+
+// Último número de turno aplicado (no UID)
+static LAST_TURNO_NUM: std::sync::Mutex<i32> = std::sync::Mutex::new(-1);
 
 /* ───────────── Callback JS → Rust ───────────── */
 #[wasm_bindgen]
@@ -84,30 +89,35 @@ pub fn set_game_state(json_str: &str, uid: i32) {
             web_sys::console::log_1(&"✅ SnapshotFromServer parseado con éxito".into());
 
             if snap.estado != "playing" || snap.proximo_turno == 0 {
-                warn!("⏳ Partida aún no está en estado 'playing' o turno inválido. Ignorando snapshot.");
+                warn!(
+                    "⏳ Partida aún no está en estado 'playing' o turno inválido. Ignorando snapshot."
+                );
                 return;
             }
 
-            let last = LAST_TURNO.lock().unwrap();
-            info!(
-                "📥 Recibido snapshot turno {} (último aplicado {})",
-                snap.proximo_turno, *last
-            );
-
-            if snap.proximo_turno > *last {
-                APP_STATE.with(|c| *c.borrow_mut() = Some((snap, uid)));
-                info!("✅ Snapshot en cola para ser aplicado");
-            } else {
-                warn!("📛 Snapshot descartado (antiguo)");
+            // deduplicación por número de turno real
+            let mut last = LAST_TURNO_NUM.lock().unwrap();
+            if snap.ultimo_turno <= *last {
+                warn!(
+                    "📛 Snapshot duplicado/antiguo (#{}) – último aplicado {}",
+                    snap.ultimo_turno, *last
+                );
+                return;
             }
+            *last = snap.ultimo_turno;
+
+            APP_STATE.with(|c| *c.borrow_mut() = Some((snap, uid)));
+            info!("✅ Snapshot #{} en cola para aplicar", *last);
         }
         Err(e) => {
-            web_sys::console::error_1(&format!("❌ Error al parsear snapshot JSON: {:?}", e).into());
+            web_sys::console::error_1(&format!("❌ Error al parsear snapshot JSON: {e:?}").into());
         }
     }
 }
 
-
+// -----------------------------------------------------------------------------
+// Sistema Bevy que aplica el snapshot cuando está en cola
+// -----------------------------------------------------------------------------
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot_apply_system(
     mut commands: Commands,
@@ -124,35 +134,39 @@ pub fn snapshot_apply_system(
     player_names: Option<Res<PlayerNames>>,
 ) {
     let Some((snap, my_uid)) = APP_STATE.with(|c| c.borrow_mut().take()) else {
-        warn!("📭 No hay snapshot en cola para aplicar.");
-        return;
+        return; // nada que aplicar
     };
 
-    info!("🔄 Aplicando snapshot – turno {}", snap.proximo_turno);
+    info!("🔄 Aplicando snapshot – turno {} (último #{})", snap.proximo_turno, snap.ultimo_turno);
 
-    // Actualizar nombres de jugadores
+    // 1. Nombres de jugadores
     commands.insert_resource(PlayerNames {
         left_name: snap.nombre_jugador_1.clone(),
         right_name: snap.nombre_jugador_2.clone(),
     });
 
-    // Ignorar snapshot duplicado
-    if snap.proximo_turno == ultimo_turno.0 {
-        warn!("⏩ Snapshot ignorado: mismo turno que el último aplicado ({})", snap.proximo_turno);
+    // 2. Evitar volver a aplicarlo si ya lo hicimos (ahora por número real)
+    if snap.ultimo_turno == ultimo_turno.0 {
+        warn!("⏩ Snapshot ignorado: mismo número de turno que el último aplicado ({})", snap.ultimo_turno);
         return;
     }
-    ultimo_turno.0 = snap.proximo_turno;
+    ultimo_turno.0 = snap.ultimo_turno;
 
-    if let Some(last) = snap.turnos.last() {
-        // Caso con jugada: aplicar snapshot de posicionado
-        if let Ok(board_raw) = serde_json::from_value::<BoardSnapshot>(last.jugada.clone()) {
+    // 3. Aplicar jugadas o formaciones
+    if let Some(last_jugada) = snap.turnos.last() {
+        // snapshot con jugada
+        if let Ok(board_raw) = serde_json::from_value::<BoardSnapshot>(last_jugada.jugada.clone()) {
             let mapped = BoardSnapshot {
-                piezas: board_raw.piezas.into_iter().map(|p| PiezaPos {
-                    id: p.id,
-                    x: p.x,
-                    y: p.y,
-                    id_usuario_real: p.id_usuario_real,
-                }).collect(),
+                piezas: board_raw
+                    .piezas
+                    .into_iter()
+                    .map(|p| PiezaPos {
+                        id: p.id,
+                        x: p.x,
+                        y: p.y,
+                        id_usuario_real: p.id_usuario_real,
+                    })
+                    .collect(),
             };
 
             apply_board_snapshot(
@@ -165,29 +179,29 @@ pub fn snapshot_apply_system(
                 player_names.map(|r| (*r).clone()),
                 &asset_server,
             );
-            commands.insert_resource(NextTurn(last.numero_turno + 1));
+            commands.insert_resource(NextTurn(last_jugada.numero_turno + 1));
         } else {
             warn!("📛 Snapshot recibido con jugada inválida o corrupta.");
         }
-
     } else if snap.formaciones.len() >= 2 {
-        // Caso kickoff: sólo formaciones
+        // kickoff – sólo formaciones
         for f in &snap.formaciones {
             spawn_formation_for(f, &mut commands, &asset_server, &backend_info);
         }
         commands.insert_resource(NextTurn(1));
 
-        // Generar pelota en el kickoff si no existe aún
         if q_ball.get_single().is_err() {
             spawn_ball(&mut commands, &asset_server);
         }
-
     } else {
-        warn!("📛 Snapshot recibido sin jugadas ni formaciones válidas.");
+        warn!("📛 Snapshot sin jugadas ni formaciones válidas.");
     }
 
-    // Actualizar marcador
-    *scores = Scores { left: snap.marcador.0, right: snap.marcador.1 };
+    // 4. Actualizar estado del juego
+    *scores = Scores {
+        left: snap.marcador.0,
+        right: snap.marcador.1,
+    };
     ts.in_motion = false;
     ts.selected_entity = None;
     ts.skip_turn_switch = false;
@@ -203,10 +217,11 @@ pub fn snapshot_apply_system(
         info!("🎮 Estado cambiado a InGame.");
     }
 
-    // Actualizar LAST_TURNO
-    let mut last = LAST_TURNO.lock().unwrap();
-    *last = snap.proximo_turno;
-    info!("✅ LAST_TURNO actualizado a {}", *last);
+    // 5. Guardar número de turno aplicado
+    {
+        let mut last = LAST_TURNO_NUM.lock().unwrap();
+        *last = snap.ultimo_turno;
+    }
 }
 
 /* ======================================================================= */
