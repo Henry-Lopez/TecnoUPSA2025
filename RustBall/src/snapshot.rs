@@ -139,7 +139,7 @@ pub fn snapshot_apply_system(
     );
 
     /* 0.b ─── Snapshot especial: gol → elegir formaciones de nuevo ─────── */
-    if snap.proximo_turno == 0 && snap.formaciones.is_empty() {
+    if snap.proximo_turno == 0 {
         info!("⚽ Gol marcado — volvemos a FormationSelection");
 
         // Limpia tablero (opcional: comenta si quieres dejar las fichas)
