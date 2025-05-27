@@ -25,6 +25,8 @@ pub fn auto_select_first_disk(
     mut commands: Commands,
     mut sprites: Query<&mut Sprite>,
     backend_info: Res<BackendInfo>,
+    /* NUEVA query: cualquier ficha que ya tenga TurnControlled */
+    query_turn_controlled: Query<Entity, With<TurnControlled>>,
 ) {
     // ‼️ Solo si todavía no hay ficha seleccionada, el turno es mío
     //    y ninguna ficha está en movimiento
@@ -32,6 +34,11 @@ pub fn auto_select_first_disk(
         && !turn_state.in_motion
         && turn_state.current_turn_id == backend_info.my_uid
     {
+        // 🚩 1-a  Elimina TurnControlled de *cualquier* otra ficha
+        for e in query_turn_controlled.iter() {
+            commands.entity(e).remove::<TurnControlled>();
+        }
+
         for (entity, owned_by) in &disks {
             if owned_by.0 == backend_info.my_uid {
                 // resalta la ficha
@@ -39,13 +46,18 @@ pub fn auto_select_first_disk(
                     sprite.color = Color::WHITE;
                 }
                 // le damos el componente de control
-                if let Some(mut ecmd) = commands.get_entity(entity) {
-                    ecmd.insert(TurnControlled);
-                }
+                commands.entity(entity).insert(TurnControlled);
                 turn_state.selected_entity = Some(entity);
                 break;
             }
         }
+
+        // Depuración opcional
+        debug_assert_eq!(
+            query_turn_controlled.iter().count(),
+            0,
+            "¡Quedaban fichas con TurnControlled tras limpiar!"
+        );
     }
 }
 
@@ -60,6 +72,8 @@ pub fn cycle_disk_selection(
     mut turn_state: ResMut<TurnState>,
     mut commands: Commands,
     backend_info: Res<BackendInfo>,
+    /* NUEVA query */
+    query_turn_controlled: Query<Entity, With<TurnControlled>>,
 ) {
     if !(keys.just_pressed(KeyCode::Tab) && !turn_state.in_motion) {
         return;
@@ -77,14 +91,12 @@ pub fn cycle_disk_selection(
         return;
     }
 
-    // Des-seleccionar la ficha actual
-    if let Some(current) = turn_state.selected_entity {
-        if let Ok(mut sprite) = sprites.get_mut(current) {
+    /* ─── NUEVO bloque: limpia cualquier TurnControlled previo ─── */
+    for e in query_turn_controlled.iter() {
+        if let Ok(mut sprite) = sprites.get_mut(e) {
             sprite.color = Color::WHITE;
         }
-        if let Some(mut ecmd) = commands.get_entity(current) {
-            ecmd.remove::<TurnControlled>();
-        }
+        commands.entity(e).remove::<TurnControlled>();
     }
 
     // Elegir la siguiente
@@ -97,12 +109,16 @@ pub fn cycle_disk_selection(
     if let Ok(mut sprite) = sprites.get_mut(new_entity) {
         sprite.color = Color::WHITE;
     }
-    if let Some(mut ecmd) = commands.get_entity(new_entity) {
-        ecmd.insert(TurnControlled);
-    }
+    commands.entity(new_entity).insert(TurnControlled);
     turn_state.selected_entity = Some(new_entity);
     turn_state.aim_direction = Vec2::ZERO;
     turn_state.power = 0.0;
+
+    debug_assert_eq!(
+        query_turn_controlled.iter().count(),
+        1,
+        "¡Más de una ficha con TurnControlled tras el cambio con TAB!"
+    );
 }
 
 /* ───────────────────────────────────────────────────────────── */
@@ -156,13 +172,12 @@ pub fn charge_shot_power(
 /* 5. Disparar ficha seleccionada                                */
 /* ───────────────────────────────────────────────────────────── */
 
-use bevy_rapier2d::prelude::{RigidBody, Velocity, Sleeping};   // ① importa Sleeping
+use bevy_rapier2d::prelude::{RigidBody, Velocity, Sleeping};
 
 pub fn fire_selected_disk(
     keys: Res<Input<KeyCode>>,
     my_turn: Res<MyTurn>,
     mut turn_state: ResMut<TurnState>,
-    // ② ahora pedimos también el Entity
     mut velocities: Query<(Entity, &mut Velocity), With<TurnControlled>>,
     mut commands: Commands,
 ) {
@@ -175,7 +190,6 @@ pub fn fire_selected_disk(
 
     let mut any_fired = false;
 
-    // ③ iteramos con (entity, vel)
     for (entity, mut vel) in &mut velocities {
         vel.linvel = dir * speed;
         commands.entity(entity).remove::<Sleeping>();   // despierta el rigid-body
@@ -188,15 +202,9 @@ pub fn fire_selected_disk(
     }
 }
 
-
 /* ───────────────────────────────────────────────────────────── */
 /* 6. Comprobar fin de turno                                     */
 /* ───────────────────────────────────────────────────────────── */
-
-// turn_systems.rs (o donde tengas check_turn_end)
-// --------------------------------------------------------------
-// Ahora marca MyTurn(false) en cuanto las fichas se detienen
-// --------------------------------------------------------------
 
 pub fn check_turn_end(
     mut turn_state: ResMut<TurnState>,
@@ -213,7 +221,7 @@ pub fn check_turn_end(
         return;
     }
 
-    // ✅ Seguridad: esperamos a que todas las fichas se detengan
+    // ✅ Esperamos a que todas las fichas se detengan
     const THRESHOLD: f32 = 0.5;
     if velocities.iter().any(|v| v.linvel.length_squared() >= THRESHOLD) {
         return;
@@ -245,8 +253,5 @@ pub fn check_turn_end(
         event_control.turns_since_last
     );
 
-    // 🚨 ¡Aquí puede disparar múltiples veces si hay sistemas duplicados!
     turn_finished.send(LocalTurnFinishedEvent);
 }
-
-
