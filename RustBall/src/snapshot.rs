@@ -138,11 +138,17 @@ pub fn snapshot_apply_system(
         snap.proximo_turno, snap.ultimo_turno
     );
 
-    /* 0.b ─── Snapshot especial: gol → elegir formaciones de nuevo ─────── */
-    if snap.proximo_turno == 0 {
-        info!("⚽ Gol marcado — volvemos a FormationSelection");
+    /* 0.b ─── ¿Debo mostrar otra vez la selección de formaciones? ────────── */
+    //  A) Gol recién marcado              → proximo_turno == 0
+    //  B) El rival ya envió su formación  → falta la mía
+    let falta_mi_formacion = snap.proximo_turno != 0
+        && snap.formaciones.len() == 1
+        && snap.formaciones[0].id_usuario != my_uid;
 
-        // Limpia tablero (opcional: comenta si quieres dejar las fichas)
+    if snap.proximo_turno == 0 || falta_mi_formacion {
+        info!("⚽ Cambio de fase — volvemos a FormationSelection");
+
+        // Limpia tablero (opcional: comenta si quieres conservar fichas)
         for e in &q_disks {
             commands.entity(e).despawn_recursive();
         }

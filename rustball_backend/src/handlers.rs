@@ -530,55 +530,93 @@
             Ok(Json(partidas))
         }
 
-        #[axum::debug_handler]
-        pub async fn post_gol(
-            Extension(pool): Extension<MySqlPool>,
-            Json(p): Json<GolPayload>,
-        ) -> Result<Json<(i32, i32)>, (StatusCode, String)> {
-            // Obtener quién es j1 y j2
-            let row = sqlx::query!(
-                "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
-                p.id_partida
-            )
-                .fetch_one(&pool)
+    // -----------------------------------------------------------------------------
+    //  POST /gol
+    // -----------------------------------------------------------------------------
+    #[axum::debug_handler]
+    pub async fn post_gol(
+        Extension(pool): Extension<MySqlPool>,
+        Extension(tx):   Extension<broadcast::Sender<String>>,   // ⬅️  añade el sender
+        Json(p):         Json<GolPayload>,
+    ) -> Result<Json<(i32, i32)>, (StatusCode, String)> {
+        tracing::info!("⚽  POST /gol — partida {}, goleador {}", p.id_partida, p.id_goleador);
+
+        /* ───────────────────────── 1. Sumar el gol ───────────────────────── */
+        let row = sqlx::query!(
+        "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
+        p.id_partida
+    )
+            .fetch_one(&pool)
+            .await
+            .map_err(internal!("leer jugadores de la partida"))?;
+
+        if p.id_goleador == row.id_jugador1 {
+            sqlx::query!(
+            "UPDATE Partida SET gol_j1 = gol_j1 + 1 WHERE id_partida = ?",
+            p.id_partida
+        )
+                .execute(&pool)
                 .await
-                .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
-
-            // Ejecutar el UPDATE correcto
-            if p.id_goleador == row.id_jugador1 {
-                sqlx::query!(
-                    "UPDATE Partida SET gol_j1 = gol_j1 + 1 WHERE id_partida = ?",
-                    p.id_partida
-                )
-                    .execute(&pool)
-                    .await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            } else {
-                sqlx::query!(
-                    "UPDATE Partida SET gol_j2 = gol_j2 + 1 WHERE id_partida = ?",
-                    p.id_partida
-                )
-                    .execute(&pool)
-                    .await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            }
-
-            // Consultar marcador actualizado
-            let marcador = sqlx::query!(
-                "SELECT gol_j1, gol_j2 FROM Partida WHERE id_partida = ?",
-                p.id_partida
-            )
-                .fetch_one(&pool)
+                .map_err(internal!("incrementar gol_j1"))?;
+        } else {
+            sqlx::query!(
+            "UPDATE Partida SET gol_j2 = gol_j2 + 1 WHERE id_partida = ?",
+            p.id_partida
+        )
+                .execute(&pool)
                 .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-            Ok(Json((
-                marcador.gol_j1.unwrap_or(0),
-                marcador.gol_j2.unwrap_or(0),
-            )))
-
+                .map_err(internal!("incrementar gol_j2"))?;
         }
-        use crate::routes::websocket::save_last_snapshot; // 🆕 Agrega este import
+
+        /* ───────────────────────── 2. Resetear la partida ──────────────────
+           - estado  -> 'waiting'
+           - turno_actual -> 0
+           - borrar formaciones elegidas     */
+        sqlx::query!(
+        "UPDATE Partida
+            SET estado = 'waiting',
+                turno_actual = 0
+          WHERE id_partida = ?",
+        p.id_partida
+    )
+            .execute(&pool)
+            .await
+            .map_err(internal!("poner estado=waiting"))?;
+
+        sqlx::query!(
+        "DELETE FROM FormacionElegida WHERE id_partida = ?",
+        p.id_partida
+    )
+            .execute(&pool)
+            .await
+            .map_err(internal!("borrar formaciones"))?;
+
+        /* ───────────────────────── 3. Consultar marcador ─────────────────── */
+        let marcador = sqlx::query!(
+        "SELECT gol_j1, gol_j2 FROM Partida WHERE id_partida = ?",
+        p.id_partida
+    )
+            .fetch_one(&pool)
+            .await
+            .map_err(internal!("leer marcador"))?;
+
+        /* ───────────────────────── 4. Enviar snapshot 'waiting' ───────────── */
+        let snap = super::get_snapshot(p.id_partida, pool.clone())
+            .await
+            .map_err(internal!("generar snapshot"))?;
+
+        if let Err(e) = tx.send(serde_json::to_string(&snap).unwrap()) {
+            tracing::warn!("📢 No hay oyentes para snapshot post-gol: {e}");
+        }
+
+        /* ───────────────────────── 5. Respuesta HTTP ─────────────────────── */
+        Ok(Json((
+            marcador.gol_j1.unwrap_or(0),
+            marcador.gol_j2.unwrap_or(0),
+        )))
+    }
+
+    use crate::routes::websocket::save_last_snapshot; // 🆕 Agrega este import
 
     // -----------------------------------------------------------------------------
     //  GET /snapshot/{id_partida}
