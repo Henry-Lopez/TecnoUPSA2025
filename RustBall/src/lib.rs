@@ -364,7 +364,6 @@ pub fn main_internal() {
                 )
                     .run_if(
                         in_state(AppState::FormationSelection)
-                            .or_else(in_state(AppState::FormationChange))
                             .or_else(in_state(AppState::InGame)),
                     ),
             );
@@ -422,16 +421,9 @@ pub fn main_internal() {
                 send_formacion_to_backend,
             )
                 .run_if(
-                    in_state(AppState::FormationSelection)
-                        .or_else(in_state(AppState::FormationChange)),
+                    in_state(AppState::FormationSelection),
                 ),
         );
-
-    // ───────── STATE: FormationChange ───────────────────────────────────
-    app.add_systems(
-        OnEnter(AppState::FormationChange),
-        (show_formation_ui_system, reset_for_formation, cleanup_power_bar),
-    );
 
     // ───────── STATE: InGame – enter / exit ─────────────────────────────
     app.add_systems(
@@ -454,7 +446,6 @@ pub fn main_internal() {
         snapshot::snapshot_apply_system
             .run_if(
                 in_state(AppState::FormationSelection)
-                    .or_else(in_state(AppState::FormationChange))
                     .or_else(in_state(AppState::InGame)),
             )
             .in_set(ApplySnapshotSet),

@@ -23,7 +23,6 @@ pub mod input_systems;
 pub mod turn_systems;
 pub mod ui_systems;
 pub mod visual_systems;
-pub mod reset_for_formation;
 pub mod poll_turn;
 
 // ────────────────────────── MÓDULOS PRIVADOS ──────────────────────────
@@ -75,5 +74,4 @@ pub use turn_systems::*;
 // — HUD / UI / Visuales ────────────────────────────────────────────────
 pub use ui_systems::*;
 pub use visual_systems::*;
-pub use reset_for_formation::*;
 pub use turn_systems::CheckTurnEndSet;

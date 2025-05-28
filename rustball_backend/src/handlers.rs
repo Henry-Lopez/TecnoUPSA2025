@@ -565,20 +565,15 @@
         }
 
         /* 2. resetear partida  ------------------------------------------------- */
+        // ✅ Marcar el estado como finalizado si quieres
         sqlx::query!(
-    // ←──────  ⬇️  ahora turno_actual = NULL  (antes era 0)
-    "UPDATE Partida SET estado = 'waiting', turno_actual = NULL WHERE id_partida = ?",
+    "UPDATE Partida SET estado = 'finished' WHERE id_partida = ?",
     p.id_partida
 )
             .execute(&pool)
             .await
-            .map_err(internal!("poner estado=waiting"))?;
+            .map_err(internal!("poner estado=finished"))?;
 
-
-        sqlx::query!("DELETE FROM FormacionElegida WHERE id_partida = ?", p.id_partida)
-            .execute(&pool)
-            .await
-            .map_err(internal!("borrar formaciones"))?;
 
         /* 3. marcador actualizado -------------------------------------------- */
         let marcador = sqlx::query!(

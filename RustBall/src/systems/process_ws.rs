@@ -86,10 +86,6 @@ pub fn process_ws_messages(
     // 2. Procesar mensajes empujados desde JS → Bandeja
     for msg in inbox.0.drain(..) {
         match msg.as_str() {
-            "turno_finalizado" => {
-                info!("🟢 WsInbox: turno_finalizado → AppState::FormationChange");
-                next_state.set(AppState::FormationChange);
-            }
             "start" => {
                 info!("🟢 WsInbox: start recibido → posiblemente cambiar estado");
             }

@@ -101,7 +101,7 @@ pub fn handle_goal(
         ));
 
         // ⏱️ Guardamos el siguiente estado dependiendo del marcador
-        if scores.left == 3 || scores.right == 3 {
+        if scores.left == 1 || scores.right == 1 {
             next_state.set(AppState::GameOver);
         } else {
             next_state.set(AppState::GoalScored);
@@ -143,10 +143,8 @@ pub fn wait_and_change_state(
     scores: Res<Scores>,
 ) {
     if timer.timer.finished() {
-        if scores.left >= 3 || scores.right >= 3 {
+        if scores.left >= 1 || scores.right >= 1 {
             next_state.set(AppState::GameOver);
-        } else {
-            next_state.set(AppState::FormationChange);
         }
     }
 }

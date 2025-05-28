@@ -68,7 +68,6 @@ pub enum AppState {
     FormationSelection,
     InGame,
     GoalScored,
-    FormationChange,
     GameOver,
 }
 
