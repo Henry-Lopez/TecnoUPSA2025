@@ -532,9 +532,6 @@
             Ok(Json(partidas))
         }
 
-    // -----------------------------------------------------------------------------
-    //  POST /gol
-    // -----------------------------------------------------------------------------
     #[axum::debug_handler]
     pub async fn post_gol(
         Extension(pool): Extension<MySqlPool>,
@@ -543,7 +540,7 @@
     ) -> Result<Json<(i32, i32)>, (StatusCode, String)> {
         tracing::info!("⚽  POST /gol — partida {}, goleador {}", p.id_partida, p.id_goleador);
 
-        /* 1. sumar el gol ----------------------------------------------------- */
+        /* 1. Leer jugadores para verificar quién es el goleador ------------------ */
         let row = sqlx::query!(
         "SELECT id_jugador1, id_jugador2 FROM Partida WHERE id_partida = ?",
         p.id_partida
@@ -552,6 +549,7 @@
             .await
             .map_err(internal!("leer jugadores de la partida"))?;
 
+        /* 2. Sumar el gol al jugador correspondiente ----------------------------- */
         if p.id_goleador == row.id_jugador1 {
             sqlx::query!("UPDATE Partida SET gol_j1 = gol_j1 + 1 WHERE id_partida = ?", p.id_partida)
                 .execute(&pool)
@@ -564,18 +562,17 @@
                 .map_err(internal!("incrementar gol_j2"))?;
         }
 
-        /* 2. resetear partida  ------------------------------------------------- */
-        // ✅ Marcar el estado como finalizado si quieres
+        /* 3. Marcar partida como finalizada -------------------------------------- */
         sqlx::query!(
-    "UPDATE Partida SET estado = 'finished' WHERE id_partida = ?",
-    p.id_partida
-)
+        "UPDATE Partida SET estado = 'finished', fecha_fin = NOW(), ganador = ? WHERE id_partida = ?",
+        p.id_goleador,
+        p.id_partida
+    )
             .execute(&pool)
             .await
-            .map_err(internal!("poner estado=finished"))?;
+            .map_err(internal!("marcar partida como terminada"))?;
 
-
-        /* 3. marcador actualizado -------------------------------------------- */
+        /* 4. Obtener marcador actualizado ---------------------------------------- */
         let marcador = sqlx::query!(
         "SELECT gol_j1, gol_j2 FROM Partida WHERE id_partida = ?",
         p.id_partida
@@ -584,12 +581,11 @@
             .await
             .map_err(internal!("leer marcador"))?;
 
-        /* 4. snapshot 'waiting' + broadcast ----------------------------------- */
+        /* 5. Generar y enviar snapshot final ------------------------------------- */
         let snap = super::get_snapshot(p.id_partida, pool.clone())
             .await
             .map_err(internal!("generar snapshot"))?;
 
-        // 🔴🔴  WRAP obligatorio
         let wrapped = json!({
         "uid_origen": 0,
         "tipo": "snapshot",
@@ -600,12 +596,13 @@
             tracing::warn!("📢 No hay oyentes para snapshot post-gol: {e}");
         }
 
-        /* 5. respuesta HTTP --------------------------------------------------- */
+        /* 6. Confirmar respuesta HTTP ------------------------------------------- */
         Ok(Json((
             marcador.gol_j1.unwrap_or(0),
             marcador.gol_j2.unwrap_or(0),
         )))
     }
+
 
 
 
