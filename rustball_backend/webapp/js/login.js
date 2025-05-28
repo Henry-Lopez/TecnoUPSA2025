@@ -1,59 +1,33 @@
-import { post } from "./api.js";
-
-console.log("🔍 login.js cargado — esperando al DOM…");
-
 document.addEventListener("DOMContentLoaded", () => {
-    const $ = (id) => document.getElementById(id);
-    const log = (msg) => {
-        const box = $("resultado");
-        if (box) box.textContent = msg;
-    };
-
-    const btnLogin = $("btn-login");
-    if (!btnLogin) {
-        console.error("✖ No se encontró el botón con id='btn-login'");
-        log("Error interno: botón no disponible");
-        return;
-    }
+    const btnLogin = document.getElementById("btn-login");
 
     btnLogin.addEventListener("click", async () => {
+        const nombre = document.getElementById("login-nombre").value.trim();
+        const contrasena = document.getElementById("login-contra").value.trim();
+
+        if (!nombre || !contrasena) {
+            document.getElementById("resultado").textContent = "❌ Rellena todos los campos.";
+            return;
+        }
+
         try {
-            const nombre = $("login-nombre").value.trim();
-            const pass = $("login-contra").value.trim();
-
-            if (!nombre || !pass) {
-                log("⚠️ Completa todos los campos.");
-                return;
-            }
-
-            const nombreRegex = /^[a-zA-Z0-9_]+$/;
-            if (!nombreRegex.test(nombre)) {
-                log("⚠️ Nombre de usuario inválido. Solo letras, números y guiones bajos.");
-                return;
-            }
-
-            if (pass.length < 6) {
-                log("⚠️ La contraseña debe tener al menos 6 caracteres.");
-                return;
-            }
-
-            log("🔄 Enviando datos…");
-
-            const hashedPass = CryptoJS.SHA256(pass).toString(CryptoJS.enc.Hex);
-
-            const data = await post("/login", {
-                nombre_usuario: nombre,
-                contrasena: hashedPass,
+            const res = await fetch("https://rustball.lat/api/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nombre_usuario: nombre, contrasena })
             });
 
-            console.log("✅ Login exitoso:", data);
-            localStorage.setItem("rb_user", JSON.stringify(data));
+            const data = await res.json();
 
-            log("✅ Sesión iniciada. Redirigiendo…");
-            setTimeout(() => (window.location.href = "lobby.html"), 800);
-        } catch (e) {
-            log("❌ Error inesperado. Intenta de nuevo.");
-            console.error(e);
+            if (res.ok) {
+                document.getElementById("resultado").textContent = "✅ Sesión iniciada correctamente.";
+                localStorage.setItem("rb_user", JSON.stringify(data));
+                window.location.href = "lobby.html";
+            } else {
+                document.getElementById("resultado").textContent = `❌ ${data.error || "Credenciales incorrectas"}`;
+            }
+        } catch (err) {
+            document.getElementById("resultado").textContent = "⚠️ Error al conectar con el servidor.";
         }
     });
 });
