@@ -1,16 +1,251 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>RustBall – Lobby</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/styles.css" />
+  <style>
+    /* Fuente y fondo */
+    body {
+      font-family: 'Montserrat', sans-serif;
+      background: linear-gradient(135deg, #5f72be, #9921e8);
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      color: #fff;
+      position: relative;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+    }
+
+    /* Imágenes decorativas detrás del contenido */
+    .futbolista-izquierda,
+    .futbolista-derecha {
+      position: fixed;
+      top: 10%;
+      height: 80%;
+      max-height: 600px;
+      opacity: 0.5; /* más claras */
+      z-index: 0;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .futbolista-izquierda {
+      left: 0;
+    }
+
+    .futbolista-derecha {
+      right: 0;
+    }
+
+    /* Titulo RustBall centrado */
+    h1 {
+      font-size: 3rem;
+      text-shadow: 2px 4px 8px rgba(0, 0, 0, 0.6);
+      margin: 2rem 0 1rem 0;
+      width: 100%;
+      text-align: center;
+      z-index: 2;
+      position: relative;
+      color: #fff;
+      font-weight: 700;
+    }
+
+    /* Contenedor principal del lobby */
+    #partida-container {
+      background-color: #000000dd; /* fondo negro semitransparente */
+      padding: 30px 40px;
+      border-radius: 15px;
+      width: 90%;
+      max-width: 450px;
+      margin: 2rem auto;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.9);
+      text-align: center;
+      color: #ffd700; /* dorado para textos */
+      font-weight: 600;
+      z-index: 2;
+      position: relative;
+    }
+
+    #partida-container h2 {
+      color: #ffd700;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+    }
+
+    #partida-container p {
+      margin-bottom: 1.5rem;
+      font-weight: 600;
+      color: #ffd700;
+    }
+
+    /* Inputs y botón apilados verticalmente, centrados */
+    .input-group {
+      display: flex;
+      flex-direction: column; /* apilado vertical */
+      gap: 8px; /* espaciado más corto */
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+    }
+
+    #partida-container input[type="number"] {
+      width: 100%;
+      max-width: 300px;
+      padding: 12px 15px;
+      border-radius: 12px;
+      border: none;
+      font-size: 1rem;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      transition: box-shadow 0.3s ease;
+      background-color: #fff;
+      color: #333;
+    }
+
+    #partida-container input[type="number"]:focus {
+      outline: none;
+      box-shadow: 0 0 10px #ffd700;
+    }
+
+    #partida-container button {
+      width: 100%;
+      max-width: 300px;
+      padding: 12px 15px;
+      border-radius: 12px;
+      background-color: #ff6b81;
+      border: none;
+      color: white;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
+      transition: background-color 0.3s ease, transform 0.2s ease;
+    }
+
+    #partida-container button:hover {
+      background-color: #ff4757;
+      transform: translateY(-2px);
+    }
+
+    #partida-container button:active {
+      background-color: #c83e4d;
+      transform: translateY(0);
+    }
+
+    /* Resultado de la caja de mensajes */
+    pre#resultado {
+      background-color: rgba(0, 0, 0, 0.85);
+      color: #0f0;
+      padding: 15px;
+      border-radius: 10px;
+      max-width: 450px;
+      margin: 1rem auto 2rem auto;
+      font-family: monospace;
+      box-shadow: 0 6px 15px rgba(0, 0, 0, 0.6);
+      text-align: center;
+      user-select: none;
+      z-index: 2;
+      position: relative;
+    }
+
+    /* Retos pendientes */
+    #retos-container {
+      margin-top: 3rem;
+      max-width: 450px;
+      width: 90%;
+      color: #ffd700;
+      z-index: 2;
+      position: relative;
+    }
+
+    #retos-container h2 {
+      font-weight: 700;
+      margin-bottom: 0.7rem;
+    }
+
+    #retos-container #mensajes {
+      background-color: #000000dd;
+      padding: 15px 20px;
+      border-radius: 12px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.8);
+      color: #fff;
+      font-weight: 600;
+      min-height: 60px;
+    }
+
+    /* Contenedor para instrucciones y video */
+    #how-to-play-container {
+      background-color: rgba(0,0,0,0.6);
+      border-radius: 15px;
+      padding: 20px 25px;
+      max-width: 650px;
+      margin: 3rem auto 2rem auto;
+      color: #ffd700;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.8);
+      z-index: 2;
+      position: relative;
+      text-align: center;
+    }
+
+    /* Flex container para texto e imagen video */
+    #how-to-play-container .instructions-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      text-align: center;
+    }
+
+    #how-to-play-container .instructions-text {
+      max-width: 100%;
+    }
+
+    #how-to-play-container .instructions-text ul {
+      padding-left: 20px;
+      list-style-type: disc;
+      margin: 0 auto;
+      max-width: 400px;
+      text-align: left;
+      color: #ffd700;
+    }
+
+    /* Video estilo */
+    #how-to-play-container .gameplay-video video {
+      width: 100%;
+      max-width: 600px;
+      border-radius: 12px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.7);
+      border: 2px solid #ffd700;
+    }
+
+    /* Ajustes responsive para el tutorial */
+    @media (max-width: 768px) {
+      #how-to-play-container {
+        max-width: 95%;
+        padding: 15px 20px;
+      }
+      #how-to-play-container .instructions-text ul {
+        max-width: 100%;
+        padding-left: 15px;
+      }
+      .futbolista-izquierda,
+      .futbolista-derecha {
+        display: none;
+      }
+    }
+  </style>
 </head>
 <body>
 
-<img src="img/messi.png" class="futbolista-izquierda" alt="">
-<img src="img/cr77.png"  class="futbolista-derecha"  alt="">
+<img src="img/messi.png" class="futbolista-izquierda" alt="Messi" />
+<img src="img/cr77.png" class="futbolista-derecha" alt="Cristiano Ronaldo" />
 
 <h1>⚽ RustBall</h1>
 
@@ -18,13 +253,11 @@
   <h2>🎮 Buscar/Iniciar Partida</h2>
   <p>Sesión iniciada como: <strong id="lbl-user"></strong></p>
 
-  <div class="input-group">
-    <input type="hidden" id="usuario-1">
-    <input type="number" id="usuario-2" placeholder="ID Usuario rival">
-    <button id="btn-partida">Buscar/Iniciar Partida</button>
-  </div>
+  <input type="hidden" id="usuario-1" />
+  <input type="number" id="usuario-2" placeholder="ID Usuario rival" />
 
   <div class="input-group">
+    <button id="btn-partida">Buscar/Iniciar Partida</button>
     <button id="btn-estadisticas">📊 Ver Estadísticas</button>
     <button id="btn-partidas">📁 Ver Mis Partidas</button>
   </div>
@@ -32,7 +265,6 @@
 
 <pre id="resultado">Esperando acción…</pre>
 
-<!-- 🆕 Retos pendientes -->
 <div id="retos-container">
   <h2>📬 Retos pendientes</h2>
   <div id="mensajes">Cargando...</div>
@@ -42,23 +274,23 @@
   <h2>📖 ¿Cómo Jugar?</h2>
   <div class="instructions-content">
     <div class="instructions-text">
-      <p>Rustball es un juego multijugador de fútbol asincrónico. Es decir, funciona por turnos y de manera no simultánea.</p>
+      <p>RustBall es un juego multijugador de fútbol asincrónico. Es decir, funciona por turnos y de manera no simultánea.</p>
       <p>Controles:</p>
       <ul>
-        <li>Flechas: Controlan la trayectoria del jugador</li>
-        <li>Barra espaciadora: Controla la potencia del disparo</li>
-        <li>Tabulador: Cambia de jugador</li>
+        <li><strong>Flechas:</strong> Controlan la trayectoria del jugador</li>
+        <li><strong>Barra espaciadora:</strong> Controla la potencia del disparo</li>
+        <li><strong>Tabulador:</strong> Cambia de jugador</li>
       </ul>
     </div>
     <div class="gameplay-video">
-      <video width="607" height="342" autoplay muted loop>
-        <source src="video/gameplay.mp4" type="video/mp4">
+      <video autoplay muted loop>
+        <source src="video/gameplay.mp4" type="video/mp4" />
+        Tu navegador no soporta el elemento de video.
       </video>
     </div>
   </div>
 </div>
 
-<!-- ✅ JS principal del lobby -->
 <script type="module" src="js/lobby.js"></script>
 </body>
 </html>

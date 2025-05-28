@@ -1,305 +1,233 @@
+/* Fuente y fondo */
 body {
     font-family: 'Montserrat', sans-serif;
-    background: linear-gradient(135deg, #6e8efb, #a777e3);
-    padding: 0;
+    background: linear-gradient(135deg, #5f72be, #9921e8);
     margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    color: #fff;
+    position: relative;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    color: #fff;
-    overflow-x: hidden;
-    background-size: cover;
-    background-position: center;
-    position: relative;
+    justify-content: flex-start;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to   { opacity: 1; }
+/* Imágenes decorativas detrás del contenido */
+.futbolista-izquierda,
+.futbolista-derecha {
+    position: fixed;
+    top: 10%;
+    height: 80%;
+    max-height: 600px;
+    opacity: 0.6; /* más claras */
+    z-index: 0;
+    pointer-events: none;
+    user-select: none;
 }
 
+.futbolista-izquierda {
+    left: 0;
+}
+
+.futbolista-derecha {
+    right: 0;
+}
+
+/* Titulo RustBall centrado */
 h1 {
-    color: #fff;
-    margin-bottom: 2rem;
-    text-shadow: 3px 3px 5px rgba(0, 0, 0, 0.3);
-    animation: fadeIn 1s ease;
-    text-align: center;
     font-size: 3rem;
-    z-index: 2;
-    position: relative;
-}
-
-input {
-    margin: 10px 0;
-    padding: 14px;
-    font-size: 18px;
-    border: none;
-    border-radius: 10px;
+    text-shadow: 2px 4px 8px rgba(0, 0, 0, 0.6);
+    margin: 2rem 0 1rem 0;
     width: 100%;
-    max-width: 350px;
-    transition: all 0.3s ease;
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
-    animation: fadeIn 1s ease;
-    z-index: 2;
-    position: relative;
-    background-color: rgba(255, 255, 255, 0.8);
-    color: #333;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-}
-
-input:focus {
-    outline: none;
-    background-color: rgba(255, 255, 255, 0.95);
-    border-color: rgba(255, 255, 255, 0.5);
-    box-shadow: 0 8px 12px rgba(0, 0, 0, 0.25);
-}
-
-button {
-    background-color: #ff6b81;
-    color: white;
-    cursor: pointer;
-    font-weight: bold;
-    border: none;
-    border-radius: 10px;
-    padding: 14px;
-    font-size: 18px;
-    width: 100%;
-    max-width: 350px;
-    transition: all 0.3s ease;
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
-    animation: fadeIn 1s ease;
-    z-index: 2;
-    position: relative;
-    margin: 20px 0;
     text-align: center;
+    z-index: 2;
+    position: relative;
+}
+
+/* Contenedores principales (login, registro, lobby) */
+#login-container, #registration-container, #partida-container {
+    background-color: #000000dd; /* fondo negro semitransparente */
+    padding: 30px 40px;
+    border-radius: 15px;
+    width: 90%;
+    max-width: 450px;
+    margin: 2rem auto;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.9);
+    text-align: center;
+    color: #ffd700; /* dorado para textos */
+    font-weight: 600;
+    z-index: 2;
+    position: relative;
+}
+
+/* Títulos dentro de contenedores en dorado más fuerte */
+#login-container h2,
+#registration-container h2,
+#partida-container h2 {
+    color: #ffd700;
+    font-weight: 700;
+    margin-bottom: 1.5rem;
+}
+
+/* Inputs y botón apilados verticalmente, centrados */
+.input-group {
+    display: flex;
+    flex-direction: column; /* apilado vertical */
+    gap: 15px;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+/* Inputs estilo básico */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"] {
+    width: 100%;
+    padding: 12px 15px;
+    border-radius: 12px;
+    border: none;
+    font-size: 1rem;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    transition: box-shadow 0.3s ease;
+    background-color: #fff;
+    color: #333;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="number"]:focus {
+    outline: none;
+    box-shadow: 0 0 10px #ffd700;
+}
+
+/* Botón con estilo */
+button {
+    width: 100%;
+    padding: 12px 15px;
+    border-radius: 12px;
+    background-color: #ff6b81;
+    border: none;
+    color: white;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
+    transition: background-color 0.3s ease, transform 0.2s ease;
+    margin-bottom: 15px; /* margen inferior uniforme para todos los botones */
 }
 
 button:hover {
     background-color: #ff4757;
-    box-shadow: 0 8px 12px rgba(0, 0, 0, 0.25);
     transform: translateY(-2px);
 }
 
 button:active {
     background-color: #c83e4d;
-    box-shadow: 0 3px 5px rgba(0, 0, 0, 0.3);
     transform: translateY(0);
 }
 
-pre {
-    background: rgba(0, 0, 0, 0.8);
+/* Último botón no necesita margen inferior extra */
+#partida-container button:last-child {
+    margin-bottom: 0;
+}
+
+/* Texto de enlaces (registro/login) dorado y destacado */
+#login-container p a,
+#registration-container p a {
+    color: #ffd700;
+    font-weight: 700;
+    text-decoration: underline;
+    transition: color 0.3s ease;
+}
+
+#login-container p a:hover,
+#registration-container p a:hover {
+    color: #ffdd55;
+}
+
+/* Resultado de la caja de mensajes */
+pre#resultado {
+    background-color: rgba(0, 0, 0, 0.85);
     color: #0f0;
-    padding: 25px;
+    padding: 15px;
     border-radius: 10px;
-    white-space: pre-wrap;
-    margin-top: 3rem;
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    animation: fadeIn 1s ease;
+    max-width: 450px;
+    margin: 1rem auto 2rem auto;
+    font-family: monospace;
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.6);
     text-align: center;
-    z-index: 2;
-    position: relative;
+    user-select: none;
 }
 
-#game-container {
-    display: none;
-    background-color: rgba(255, 255, 255, 0.1);
-    padding: 30px;
-    margin-top: 3rem;
-    border-radius: 10px;
-    text-align: center;
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    animation: fadeIn 1s ease;
-    z-index: 2;
-    position: relative;
-}
-
-#game-container h2 {
-    color: #fff;
-    margin-bottom: 1.5rem;
-    text-shadow: 3px 3px 5px rgba(0, 0, 0, 0.3);
-    font-size: 2.5rem;
-    z-index: 2;
-    position: relative;
-}
-
-#game-container p {
-    color: #fff;
-    font-size: 1.5rem;
-    margin-bottom: 2rem;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
-    z-index: 2;
-    position: relative;
-}
-
-#rustball-canvas {
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-radius: 15px;
-    max-width: 100%;
-    height: auto;
-    background-color: #121212;
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
-    animation: fadeIn 1s ease;
-    z-index: 2;
-    position: relative;
-}
-
-#login-container h2,
-#registration-container h2,
-#partida-container h2 {
-    color: #fff;
-    margin-bottom: 2rem;
-    text-shadow: 3px 3px 5px rgba(0, 0, 0, 0.3);
-    text-align: center;
-    font-size: 2rem;
-    animation: fadeIn 1s ease;
-    z-index: 2;
-    position: relative;
-}
-
-#login-container,
-#registration-container,
-#partida-container {
-    background-color: rgba(255, 255, 255, 0.1);
-    padding: 30px;
-    border-radius: 10px;
-    margin-bottom: 3rem;
-    width: 450px;
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    animation: fadeIn 1s ease;
-    z-index: 2;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.input-group {
+/* Para el lobby: mejorar diseño botones y formulario */
+#partida-container input[type="number"] {
     width: 100%;
+    max-width: 300px;
+    margin-bottom: 15px;
+    padding: 10px 12px;
+}
+
+#partida-container button {
+    max-width: 300px;
+    margin: 8px auto;
+}
+
+/* Estilos para el tutorial de cómo jugar */
+#how-to-play-container {
+    background-color: rgba(0,0,0,0.6);
+    border-radius: 15px;
+    padding: 20px 25px;
+    max-width: 650px;
+    margin: 3rem auto 2rem auto;
+    color: #ffd700;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.8);
+}
+
+#how-to-play-container .instructions-content {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
+    gap: 20px;
+    text-align: center;
 }
 
+#how-to-play-container .instructions-text {
+    max-width: 100%;
+}
+
+#how-to-play-container .instructions-text ul {
+    padding-left: 20px;
+    list-style-type: disc;
+    margin: 0 auto;
+    max-width: 400px;
+    text-align: left;
+}
+
+#how-to-play-container .gameplay-video video {
+    width: 100%;
+    max-width: 600px;
+    border-radius: 12px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.7);
+    border: 2px solid #ffd700;
+}
+
+/* Responsive */
 @media (max-width: 768px) {
     #login-container,
     #registration-container,
     #partida-container {
         width: 95%;
-        max-width: 450px;
-    }
-    h1 {
-        font-size: 2.5rem;
-    }
-    #game-container h2 {
-        font-size: 2rem;
-    }
-}
-
-.futbolista-izquierda {
-    position: fixed;
-    left: 0;
-    top: 10%;
-    height: 80%;
-    opacity: 1;
-    z-index: 1;
-    animation: fadeIn 1s ease;
-    max-height: 800px;
-}
-
-.futbolista-derecha {
-    position: fixed;
-    right: 0;
-    top: 10%;
-    height: 80%;
-    opacity: 1;
-    z-index: 1;
-    animation: fadeIn 1s ease;
-    max-height: 800px;
-}
-
-#how-to-play-container {
-    background-color: #282c34; /* Un tono negro-gris opaco, puedes ajustarlo (e.g., #333333) */
-    color: #fff; /* Asegura que el texto dentro sea blanco y legible */
-    padding: 25px;
-    border-radius: 10px; /* Consistente con otros contenedores */
-    margin-top: 2rem;
-    margin-bottom: 3rem; /* Espacio adicional en la parte inferior */
-    width: 90%; /* Usa un porcentaje para que sea responsivo */
-    max-width: 800px; /* Un ancho máximo para pantallas grandes */
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3); /* Sombra consistente */
-    border: 2px solid rgba(255, 255, 255, 0.1); /* Borde consistente */
-    text-align: center; /* Centra el título h2 */
-    z-index: 2; /* Para asegurar que esté por encima de las imágenes de fondo si es necesario */
-    position: relative; /* Necesario para el z-index */
-    animation: fadeIn 1s ease; /* Reutiliza tu animación de entrada */
-    display: flex;
-    flex-direction: column;
-    align-items: center; /* Centra el contenido flex (instructions-content) */
-}
-
-#how-to-play-container h2 {
-    color: #fff; /* Ya heredado, pero explícito para claridad */
-    margin-bottom: 1.5rem;
-    text-shadow: 3px 3px 5px rgba(0, 0, 0, 0.3); /* Sombra consistente */
-    font-size: 2rem; /* Tamaño consistente */
-}
-
-#how-to-play-container .instructions-content {
-    display: flex;
-    flex-direction: column; /* Apila el texto y el video */
-    align-items: center; /* Centra el bloque de texto y el video */
-    width: 100%; /* Ocupa el ancho completo de #how-to-play-container */
-    gap: 20px; /* Espacio entre el bloque de texto y el video */
-}
-
-#how-to-play-container .instructions-text {
-    text-align: left; /* Alinea el texto de las instrucciones a la izquierda para mejor legibilidad */
-    max-width: 95%; /* Limita el ancho para que no ocupe todo el contenedor si es muy ancho */
-    line-height: 1.6; /* Mejora la legibilidad del párrafo */
-}
-
-#how-to-play-container .instructions-text p,
-#how-to-play-container .instructions-text ul {
-    margin-bottom: 12px; /* Espacio entre párrafos y listas */
-}
-
-#how-to-play-container .instructions-text ul {
-    padding-left: 20px; /* Indentación para los items de la lista */
-    list-style-position: inside; /* Para que los bullets queden dentro del flujo del texto */
-}
-
-#how-to-play-container .gameplay-video {
-    width: 100%;
-    max-width: 607px; /* Ancho original del video, o el que prefieras */
-    display: flex;
-    justify-content: center; /* Centra el video si es más pequeño que este contenedor */
-}
-
-#how-to-play-container .gameplay-video video {
-    display: block; /* Elimina espacio extra debajo del video */
-    max-width: 100%; /* Hace el video responsivo dentro de su contenedor */
-    height: auto; /* Mantiene la proporción del video */
-    border-radius: 8px; /* Bordes redondeados para el video */
-    border: 1px solid rgba(255, 255, 255, 0.2); /* Un borde sutil para el video */
-}
-
-/* Ajustes responsivos para la sección "Cómo Jugar" */
-@media (max-width: 768px) {
-    #how-to-play-container {
-        width: 95%;
         padding: 20px;
     }
 
-    #how-to-play-container h2 {
-        font-size: 1.8rem;
-    }
-
-    #how-to-play-container .instructions-text {
-        max-width: 100%; /* Permite que el texto ocupe más espacio en pantallas pequeñas */
+    .futbolista-izquierda,
+    .futbolista-derecha {
+        display: none;
     }
 }

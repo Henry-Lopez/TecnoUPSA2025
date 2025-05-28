@@ -1,24 +1,24 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>RustBall – Iniciar Sesión</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/styles.css" />
 </head>
 <body>
 
-<img src="img/messi.png" class="futbolista-izquierda" alt="">
-<img src="img/cr77.png"  class="futbolista-derecha"  alt="">
+<img src="img/messi.png" class="futbolista-izquierda" alt="Messi" />
+<img src="img/cr77.png" class="futbolista-derecha" alt="Cristiano Ronaldo" />
 
 <h1>⚽ RustBall</h1>
 
 <div id="login-container">
   <h2>🔐 Iniciar Sesión</h2>
   <div class="input-group">
-    <input type="text" id="login-nombre" placeholder="Nombre de usuario">
-    <input type="password" id="login-contra" placeholder="Contraseña">
+    <input type="text" id="login-nombre" placeholder="Nombre de usuario" />
+    <input type="password" id="login-contra" placeholder="Contraseña" />
     <button id="btn-login">Entrar</button>
   </div>
 
@@ -30,41 +30,6 @@
 
 <pre id="resultado">Esperando acción…</pre>
 
-<script type="module">
-  document.addEventListener("DOMContentLoaded", () => {
-    const btnLogin = document.getElementById("btn-login");
-
-    btnLogin.addEventListener("click", async () => {
-      const nombre = document.getElementById("login-nombre").value.trim();
-      const contrasena = document.getElementById("login-contra").value.trim();
-
-      if (!nombre || !contrasena) {
-        document.getElementById("resultado").textContent = "❌ Rellena todos los campos.";
-        return;
-      }
-
-      try {
-        const res = await fetch("/api/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ nombre_usuario: nombre, contrasena })
-        });
-
-        const data = await res.json();
-
-        if (res.ok) {
-          localStorage.setItem("rb_user", JSON.stringify(data)); // ✅ lo que espera lobby.js
-          document.getElementById("resultado").textContent = "✅ Sesión iniciada correctamente.";
-          window.location.href = "lobby.html";
-        } else {
-          document.getElementById("resultado").textContent = `❌ ${data.error || "Credenciales incorrectas"}`;
-        }
-      } catch (err) {
-        document.getElementById("resultado").textContent = "⚠️ Error al conectar con el servidor.";
-      }
-    });
-  });
-</script>
-
+<script type="module" src="js/login.js"></script>
 </body>
 </html>
